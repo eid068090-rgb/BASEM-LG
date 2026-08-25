@@ -1,504 +1,867 @@
-
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
-import 'package:http/http.dart' as http;
-
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter_local_device_discovery/flutter_local_device_discovery.dart';
 
 void main() {
-  runApp(const NetworkDiscoveryApp());
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const BasemLgApp());
 }
 
-class NetworkDevice {
-  final String ip;
-  String vendor;
-  String model;
-  String hostname;
-  String firmware;
-  String mac;
-  String protocol;
-  String status;
-  String details;
-
-  NetworkDevice({
-    required this.ip,
-    this.vendor = '',
-    this.model = '',
-    this.hostname = '',
-    this.firmware = '',
-    this.mac = '',
-    this.protocol = '',
-    this.status = '',
-    this.details = '',
-  });
-
-  String get title {
-    if (model.trim().isNotEmpty) return model.trim();
-    if (hostname.trim().isNotEmpty) return hostname.trim();
-    if (vendor.trim().isNotEmpty) return vendor.trim();
-    return 'Network device';
-  }
-}
-
-class UbiquitiDiscovery {
-  static const int port = 10001;
-
-  Future<List<NetworkDevice>> scan({
-    Duration timeout = const Duration(seconds: 4),
-  }) async {
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
-    socket.broadcastEnabled = true;
-
-    final found = <String, NetworkDevice>{};
-
-    // Ubiquiti discovery V1 probe.
-    final v1 = Uint8List.fromList([0x01, 0x00, 0x00, 0x00]);
-
-    // Ubiquiti discovery V2 probe: version=2, command=8, length=0.
-    final v2 = Uint8List.fromList([0x02, 0x08, 0x00, 0x00]);
-
-    void sendProbe(Uint8List payload) {
-      try {
-        socket.send(payload, InternetAddress('255.255.255.255'), port);
-      } catch (_) {}
-    }
-
-    sendProbe(v1);
-    sendProbe(v2);
-
-    final sub = socket.listen((event) {
-      if (event != RawSocketEvent.read) return;
-      Datagram? dg;
-      while ((dg = socket.receive()) != null) {
-        final data = dg!.data;
-        final parsed = _parse(data, dg.address.address);
-        if (parsed == null) continue;
-
-        final key = '${parsed.mac}|${parsed.ip}|${parsed.model}';
-        final old = found[key];
-        if (old == null) {
-          found[key] = parsed;
-        } else {
-          old.firmware = parsed.firmware.isNotEmpty ? parsed.firmware : old.firmware;
-          old.hostname = parsed.hostname.isNotEmpty ? parsed.hostname : old.hostname;
-          old.mac = parsed.mac.isNotEmpty ? parsed.mac : old.mac;
-        }
-      }
-    });
-
-    await Future<void>.delayed(timeout);
-    await sub.cancel();
-    socket.close();
-
-    return found.values.toList()
-      ..sort((a, b) => _ipSort(a.ip, b.ip));
-  }
-
-  static NetworkDevice? _parse(Uint8List data, String sourceIp) {
-    if (data.length < 4) return null;
-    final version = data[0];
-    final command = data[1];
-    if (version == 1) {
-      if (command != 0x00) return null;
-    } else if (version == 2) {
-      if (command != 0x06 && command != 0x09 && command != 0x0b) return null;
-    } else {
-      return null;
-    }
-
-    final declaredLength = (data[2] << 8) | data[3];
-    if (declaredLength != data.length - 4) return null;
-
-    final fields = <int, List<int>>{};
-    var p = 4;
-    while (p + 3 <= data.length) {
-      final type = data[p];
-      final len = (data[p + 1] << 8) | data[p + 2];
-      p += 3;
-      if (len < 0 || p + len > data.length) return null;
-      fields[type] = data.sublist(p, p + len);
-      p += len;
-    }
-
-    String text(int type) {
-      final bytes = fields[type];
-      if (bytes == null || bytes.isEmpty) return '';
-      return utf8.decode(bytes, allowMalformed: true).replaceAll('\u0000', '').trim();
-    }
-
-    String macFrom(List<int>? bytes) {
-      if (bytes == null || bytes.length < 6) return '';
-      return bytes.take(6).map((x) => x.toRadixString(16).padLeft(2, '0')).join(':');
-    }
-
-    String ipFromField(List<int>? bytes) {
-      if (bytes == null || bytes.length < 10) return '';
-      return '${bytes[6]}.${bytes[7]}.${bytes[8]}.${bytes[9]}';
-    }
-
-    String ip = sourceIp;
-    String mac = macFrom(fields[1]);
-    if (fields[2] != null) {
-      final f2 = fields[2]!;
-      final candidateIp = ipFromField(f2);
-      if (candidateIp.isNotEmpty) ip = candidateIp;
-      if (mac.isEmpty) mac = macFrom(f2);
-    }
-
-    String model = text(0x14); // V1 model
-    if (model.isEmpty) model = text(0x15); // V2 model
-
-    final firmware = text(0x03);
-    final versionText = text(0x16);
-
-    return NetworkDevice(
-      ip: ip,
-      vendor: 'Ubiquiti',
-      model: model,
-      hostname: text(0x0b),
-      firmware: firmware.isNotEmpty ? firmware : versionText,
-      mac: mac,
-      protocol: 'UBNT v$version',
-      status: _configStatus(fields[0x17]),
-      details: [
-        if (text(0x0d).isNotEmpty) 'SSID: ${text(0x0d)}',
-        if (text(0x0f).isNotEmpty) 'Management: ${text(0x0f)}',
-      ].join(' • '),
-    );
-  }
-
-  static String _configStatus(List<int>? bytes) {
-    if (bytes == null || bytes.isEmpty) return '';
-    final value = bytes.length == 1
-        ? bytes[0]
-        : bytes.length >= 4
-            ? (bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (bytes[3] << 24))
-            : -1;
-    if (value == 1) return 'default / unmanaged';
-    if (value == 0) return 'managed / adopted';
-    return '';
-  }
-
-  static int _ipSort(String a, String b) {
-    List<int> p(String s) => s.split('.').map((x) => int.tryParse(x) ?? 999).toList();
-    final aa = p(a), bb = p(b);
-    for (var i = 0; i < 4; i++) {
-      final c = (aa[i]).compareTo(bb[i]);
-      if (c != 0) return c;
-    }
-    return 0;
-  }
-}
-
-
-class LldpCollector {
-  Future<List<NetworkDevice>> fetch({
-    required String baseUrl,
-    String token = '',
-    Duration timeout = const Duration(seconds: 6),
-  }) async {
-    var url = baseUrl.trim();
-    if (url.isEmpty) throw const FormatException('OpenWrt URL is empty');
-    if (!url.endsWith('/')) url += '/';
-    final uri = Uri.parse('${url}cgi-bin/basem-lldp');
-    final client = http.Client();
-    try {
-      final response = await client
-          .get(uri, headers: {
-            'Accept': 'application/json',
-            if (token.trim().isNotEmpty) 'X-Basem-LG-Token': token.trim(),
-          })
-          .timeout(timeout);
-      if (response.statusCode != 200) {
-        throw HttpException('OpenWrt returned HTTP ${response.statusCode}', uri: uri);
-      }
-      final decoded = jsonDecode(response.body);
-      if (decoded is! Map) throw const FormatException('Invalid LLDP JSON');
-      final candidates = <Map<String, dynamic>>[];
-      void walk(dynamic value) {
-        if (value is Map) {
-          final m = Map<String, dynamic>.from(value);
-          final keys = m.keys.map((e) => e.toString().toLowerCase()).toSet();
-          final looksLikeNeighbor =
-              keys.any((k) => k.contains('chassis')) &&
-              (keys.any((k) => k.contains('port')) || keys.any((k) => k.contains('system-name')));
-          if (looksLikeNeighbor) candidates.add(m);
-          for (final v in m.values) walk(v);
-        } else if (value is List) {
-          for (final v in value) walk(v);
-        }
-      }
-      walk(decoded['neighbors'] ?? decoded['lldp'] ?? decoded);
-      final unique = <String, Map<String, dynamic>>{};
-      for (final c in candidates) {
-        final key = [
-          c['chassis-id'], c['chassis_id'], c['port-id'], c['port_id'],
-          c['system-name'], c['system_name'],
-        ].map((e) => e?.toString() ?? '').join('|');
-        unique[key] = c;
-      }
-      return unique.values
-          .map(_fromNeighbor)
-          .where((x) => x != null)
-          .cast<NetworkDevice>()
-          .toList();
-    } finally {
-      client.close();
-    }
-  }
-
-  NetworkDevice? _fromNeighbor(Map<String, dynamic> n) {
-    dynamic findValue(dynamic value, Set<String> wanted) {
-      if (value is Map) {
-        for (final entry in value.entries) {
-          final key = entry.key.toString().toLowerCase().replaceAll('_', '-');
-          if (wanted.contains(key) && entry.value != null) return entry.value;
-        }
-        for (final entry in value.entries) {
-          final found = findValue(entry.value, wanted);
-          if (found != null) return found;
-        }
-      } else if (value is List) {
-        for (final item in value) {
-          final found = findValue(item, wanted);
-          if (found != null) return found;
-        }
-      }
-      return null;
-    }
-
-    String value(Set<String> keys) {
-      final v = findValue(n, keys);
-      if (v == null) return '';
-      if (v is Map && v.containsKey('value')) return v['value'].toString().trim();
-      if (v is List) return v.map((e) => e.toString()).join(', ').trim();
-      return v.toString().trim();
-    }
-
-    final mgmt = value({'management-address', 'management-ip', 'mgmt-ip', 'mgmtip', 'ip'});
-    final chassis = value({'chassis-id', 'chassisid'});
-    final name = value({'system-name', 'systemname', 'hostname', 'name'});
-    final port = value({'port-id', 'portid', 'remote-port'});
-    final description = value({'port-description', 'portdescr', 'description'});
-    final platform = value({'system-description', 'systemdescr', 'platform', 'model'});
-    final capabilities = value({'system-capabilities-enabled', 'capabilities', 'capability'});
-    if (mgmt.isEmpty && chassis.isEmpty && name.isEmpty && port.isEmpty && description.isEmpty) return null;
-
-    return NetworkDevice(
-      ip: mgmt,
-      vendor: 'LLDP',
-      model: platform,
-      hostname: name,
-      mac: chassis,
-      protocol: 'LLDP via OpenWrt',
-      status: capabilities,
-      details: [
-        if (port.isNotEmpty) 'Remote port: $port',
-        if (description.isNotEmpty) 'Port description: $description',
-      ].join(' • '),
-    );
-  }
-
-}
-
-class NetworkDiscoveryApp extends StatefulWidget {
-  const NetworkDiscoveryApp({super.key});
-
-  @override
-  State<NetworkDiscoveryApp> createState() => _NetworkDiscoveryAppState();
-}
-
-class _NetworkDiscoveryAppState extends State<NetworkDiscoveryApp> {
-  final List<NetworkDevice> _devices = [];
-  bool _scanning = false;
-  String _message = 'جاهز للفحص';
-  final _openWrtUrl = TextEditingController(text: 'http://192.168.1.1/');
-  final _openWrtToken = TextEditingController();
-
-  @override
-  void dispose() {
-    _openWrtUrl.dispose();
-    _openWrtToken.dispose();
-    super.dispose();
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _loadInterfaces();
-  }
-
-  Future<void> _loadInterfaces() async {
-    final list = await NetworkInterface.list(
-      includeLoopback: false,
-      includeLinkLocal: false,
-      type: InternetAddressType.IPv4,
-    );
-    // Keep interface enumeration as a lightweight sanity check; discovery uses UDP broadcast.
-  }
-
-  Future<void> _scan() async {
-    if (_scanning) return;
-    setState(() {
-      _scanning = true;
-      _devices.clear();
-      _message = 'جاري إرسال UBNT Discovery على الشبكة...';
-    });
-
-    await _loadInterfaces();
-
-    try {
-      final results = await UbiquitiDiscovery().scan();
-      if (!mounted) return;
-      setState(() {
-        _devices.addAll(results);
-        _scanning = false;
-        _message = results.isEmpty
-            ? 'لم يتم العثور على جهاز Ubiquiti. تأكد أن الهاتف على نفس الـ VLAN.'
-            : 'تم العثور على ${results.length} جهاز.';
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _scanning = false;
-        _message = 'خطأ أثناء الفحص: $e';
-      });
-    }
-  }
-
-  Future<void> _scanLldp() async {
-    if (_scanning) return;
-    setState(() {
-      _scanning = true;
-      _message = 'جاري قراءة LLDP من OpenWrt...';
-    });
-    try {
-      final results = await LldpCollector().fetch(
-        baseUrl: _openWrtUrl.text,
-        token: _openWrtToken.text,
-      );
-      if (!mounted) return;
-      setState(() {
-        _devices.removeWhere((d) => d.protocol.startsWith('LLDP via'));
-        _devices.addAll(results);
-        _scanning = false;
-        _message = 'LLDP: تم العثور على ${results.length} جار.';
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _scanning = false;
-        _message = 'خطأ LLDP/OpenWrt: $e';
-      });
-    }
-  }
+class BasemLgApp extends StatelessWidget {
+  const BasemLgApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      title: 'BASEM LG',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
+        colorSchemeSeed: Colors.blue,
+        scaffoldBackgroundColor: const Color(0xFFF2F2F2),
       ),
-      home: Scaffold(
-        appBar: AppBar(
-          title: const Text('BASEM-LG Network Discovery'),
-          actions: [
-            IconButton(
-              onPressed: _scanning ? null : _scan,
-              icon: const Icon(Icons.refresh),
-              tooltip: 'Scan',
-            ),
-          ],
-        ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: _scanning ? null : _scan,
-          icon: _scanning
-              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.radar),
-          label: Text(_scanning ? 'Scanning...' : 'Scan Network'),
-        ),
-        body: Column(
-          children: [
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.all(12),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              ),
+      home: const HomeScreen(),
+    );
+  }
+}
+
+class _FirmwareResult {
+  final String firmware;
+  final String manufacturer;
+  final String model;
+  final String type;
+  final String name;
+
+  const _FirmwareResult({
+    required this.firmware,
+    required this.manufacturer,
+    required this.model,
+    required this.type,
+    required this.name,
+  });
+}
+
+class BasemDevice {
+  final String name;
+  final String ip;
+  final String mac;
+  final String manufacturer;
+  final String model;
+  final String type;
+  final List<String> services;
+  final String source;
+  final String firmware;
+
+  const BasemDevice({
+    required this.name,
+    required this.ip,
+    required this.mac,
+    required this.manufacturer,
+    required this.model,
+    required this.type,
+    required this.services,
+    required this.source,
+    this.firmware = '',
+  });
+}
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  static const Set<String> _serviceTypes = {
+    '_http._tcp',
+    '_https._tcp',
+    '_ipp._tcp',
+    '_printer._tcp',
+    '_ssh._tcp',
+    '_smb._tcp',
+    '_googlecast._tcp',
+    '_airplay._tcp',
+    '_hap._tcp',
+    '_ftp._tcp',
+  };
+
+  final FlutterLocalDeviceDiscovery _discovery =
+      FlutterLocalDeviceDiscovery();
+
+  final Map<String, BasemDevice> _devices = {};
+
+  bool _scanning = false;
+  String _status = 'جاهز لفحص الشبكة';
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_scanNetwork());
+    });
+  }
+
+  Future<void> _scanNetwork() async {
+    if (_scanning) return;
+
+    if (kIsWeb) {
+      setState(() {
+        _error = 'تشغيل فحص الشبكة يحتاج تطبيق Android حقيقي، وليس Web.';
+        _status = 'غير مدعوم على Web';
+      });
+      return;
+    }
+
+    setState(() {
+      _scanning = true;
+      _error = null;
+      _status = 'جاري فحص الشبكة المحلية...';
+      _devices.clear();
+    });
+
+    try {
+      // 1) قراءة جدول الجيران/ARP عندما يسمح Android بذلك.
+      await _loadNeighborTable();
+
+      // 2) اكتشاف الأجهزة والخدمات بواسطة mDNS/DNS-SD/SSDP/UPnP/WS-Discovery.
+      final request = LocalDiscoveryRequest(
+        mode: LocalDiscoveryMode.servicesAndDevices,
+        duration: const Duration(seconds: 10),
+        protocols: {
+          LocalDiscoveryProtocol.mdns,
+          LocalDiscoveryProtocol.dnsSd,
+          LocalDiscoveryProtocol.bonjour,
+          LocalDiscoveryProtocol.ssdp,
+          LocalDiscoveryProtocol.upnp,
+          LocalDiscoveryProtocol.wsDiscovery,
+        },
+        serviceTypes: _serviceTypes,
+        ssdpSearchTargets: const {'ssdp:all'},
+        wsDiscoveryTypes: const {'dn:NetworkVideoTransmitter'},
+        resolveServices: true,
+        fetchUpnpDescriptions: true,
+        deduplicateResults: true,
+        classifyDevices: true,
+        metadataSecurityPolicy: MetadataSecurityPolicy.defaultPolicy,
+      );
+
+      final readiness = await _discovery.checkReadiness(request);
+
+      if (!readiness.canStart) {
+        throw StateError(
+          'متطلبات الفحص غير متوفرة: ${readiness.requirements.join(', ')}',
+        );
+      }
+
+      final snapshot = await _discovery.discover(request);
+
+      for (final device in snapshot.devices) {
+        _mergeLocalDevice(device);
+      }
+
+      // Identify Realtek hardware from vendor/OUI and common network firmware
+      // from local web-management fingerprints.
+      _applyRealtekDetection();
+      await _fingerprintKnownDevices();
+      _applyRealtekDetection();
+
+      if (!mounted) return;
+
+      setState(() {
+        _status = _devices.isEmpty
+            ? 'لم يتم العثور على أجهزة'
+            : 'تم العثور على ${_devices.length} جهاز';
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _error = e.toString();
+        _status = 'تعذر إكمال الفحص';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _scanning = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadNeighborTable() async {
+    try {
+      final entries = await NeighborTable.getEntries();
+
+      for (final entry in entries) {
+        final ip = entry.ipAddress.trim();
+        final mac = entry.macAddress.trim();
+
+        if (!_isIpv4(ip)) continue;
+
+        final existing = _devices[ip];
+
+        _devices[ip] = BasemDevice(
+          name: existing?.name.isNotEmpty == true
+              ? existing!.name
+              : 'جهاز شبكة',
+          ip: ip,
+          mac: mac.isEmpty ? '-' : mac,
+          manufacturer: existing?.manufacturer ?? _vendorFromMac(mac),
+          model: existing?.model ?? '-',
+          type: existing?.type ?? 'جهاز شبكة',
+          services: existing?.services ?? const [],
+          source: 'ARP / Neighbor Table',
+          firmware: existing?.firmware ?? '-',
+        );
+      }
+    } catch (_) {
+      // بعض إصدارات Android أو الشبكات تمنع قراءة جدول الجيران.
+    }
+  }
+
+  void _mergeLocalDevice(LocalDevice device) {
+    final name = _text(device.displayName);
+    final manufacturer = _text(device.manufacturer);
+    final model = _text(device.model);
+    final type = _text(device.type);
+
+    final services = <String>[];
+    for (final service in device.services) {
+      services.add(service.serviceType);
+    }
+
+    for (final address in device.addresses) {
+      final ip = address.address;
+      if (!_isIpv4(ip)) continue;
+
+      final old = _devices[ip];
+
+      final mac = old?.mac ?? '-';
+      final vendor = manufacturer.isNotEmpty
+          ? manufacturer
+          : (old?.manufacturer ?? _vendorFromMac(mac));
+      final isRealtek = _isRealtekMac(mac) || _isRealtekText(vendor);
+
+      _devices[ip] = BasemDevice(
+        name: isRealtek && name.isEmpty
+            ? 'Realtek Device'
+            : (name.isNotEmpty
+                ? name
+                : (old?.name.isNotEmpty == true ? old!.name : 'جهاز شبكة')),
+        ip: ip,
+        mac: mac,
+        manufacturer: isRealtek ? 'Realtek Semiconductor Corp.' : vendor,
+        model: model.isNotEmpty ? model : (old?.model ?? '-'),
+        type: isRealtek ? 'Realtek Network Device' : (type.isNotEmpty ? type : (old?.type ?? 'جهاز شبكة')),
+        services: {
+          ...?old?.services,
+          ...services,
+        }.toList(),
+        source: 'Network Discovery',
+        firmware: old?.firmware ?? '-',
+      );
+    }
+  }
+
+  void _applyRealtekDetection() {
+    for (final entry in _devices.entries.toList()) {
+      final old = entry.value;
+      final realtek = _isRealtekMac(old.mac) || _isRealtekText(old.manufacturer);
+      if (!realtek) continue;
+
+      _devices[entry.key] = BasemDevice(
+        name: old.name == 'جهاز شبكة' || old.name == 'جهاز غير معروف'
+            ? 'Realtek Device'
+            : old.name,
+        ip: old.ip,
+        mac: old.mac,
+        manufacturer: 'Realtek Semiconductor Corp.',
+        model: old.model,
+        type: 'Realtek Network Device',
+        services: old.services,
+        source: old.source == 'ARP / Neighbor Table'
+            ? 'Realtek OUI / Neighbor Table'
+            : old.source,
+        firmware: old.firmware,
+      );
+    }
+  }
+
+  bool _isRealtekText(String value) {
+    final v = value.toLowerCase();
+    return v.contains('realtek') || v.contains('realtek semiconductor');
+  }
+
+  bool _isRealtekMac(String mac) {
+    final normalized = mac
+        .toUpperCase()
+        .replaceAll(':', '')
+        .replaceAll('-', '')
+        .replaceAll('.', '');
+
+    // Current Realtek registrations used here for local identification:
+    // 00:E0:4C and FC:93:4E (MA-L), plus 8C:1F:64:D5:A (MA-S).
+    // A Realtek OUI identifies the network hardware/chipset, not necessarily
+    // the finished device brand or firmware.
+    return normalized.startsWith('00E04C') ||
+        normalized.startsWith('FC934E') ||
+        normalized.startsWith('8C1F64D5A');
+  }
+
+  Future<void> _fingerprintKnownDevices() async {
+    final ips = _devices.keys.where(_isIpv4).toList();
+    if (ips.isEmpty) return;
+
+    await Future.wait(
+      ips.map((ip) async {
+        final result = await _detectFirmware(ip);
+        if (result == null) return;
+
+        final old = _devices[ip];
+        if (old == null) return;
+
+        _devices[ip] = BasemDevice(
+          name: result.name.isNotEmpty ? result.name : old.name,
+          ip: old.ip,
+          mac: old.mac,
+          manufacturer: _isRealtekText(old.manufacturer)
+              ? old.manufacturer
+              : (result.manufacturer != 'غير معروف'
+                  ? result.manufacturer
+                  : old.manufacturer),
+          model: result.model != '-'
+              ? result.model
+              : old.model,
+          type: result.type,
+          services: old.services,
+          source: 'HTTP/HTTPS Firmware Fingerprint',
+          firmware: result.firmware,
+        );
+      }),
+      eagerError: false,
+    );
+  }
+
+  Future<_FirmwareResult?> _detectFirmware(String ip) async {
+    const ports = <int>[80, 443, 8080, 8443];
+
+    for (final port in ports) {
+      final https = port == 443 || port == 8443;
+      try {
+        final client = HttpClient();
+        client.connectionTimeout = const Duration(milliseconds: 900);
+        client.idleTimeout = const Duration(milliseconds: 900);
+        if (https) {
+          client.badCertificateCallback = (cert, host, p) => _isPrivateIpv4(host);
+        }
+
+        final request = await client
+            .getUrl(Uri.parse('${https ? 'https' : 'http'}://$ip:$port/'))
+            .timeout(const Duration(seconds: 1));
+        request.followRedirects = true;
+        request.maxRedirects = 2;
+        request.headers.set('User-Agent', 'BASEM-LG-Network-Scanner/12.0.1');
+
+        final response = await request.close().timeout(const Duration(seconds: 2));
+        final bytes = <int>[];
+        await for (final chunk in response) {
+          bytes.addAll(chunk);
+          if (bytes.length >= 128 * 1024) break;
+        }
+        client.close(force: true);
+
+        final body = String.fromCharCodes(bytes).toLowerCase();
+        final server = (response.headers.value('server') ?? '').toLowerCase();
+        final location = (response.headers.value('location') ?? '').toLowerCase();
+        final haystack = '$body\n$server\n$location';
+
+        final result = _matchFirmware(haystack);
+        if (result != null) return result;
+      } catch (_) {
+        // عدم استجابة منفذ الإدارة لا يعني أن الجهاز غير موجود.
+      }
+    }
+    return null;
+  }
+
+  _FirmwareResult? _matchFirmware(String text) {
+    bool has(String s) => text.contains(s);
+
+    if (has('dd-wrt')) {
+      return const _FirmwareResult(
+        firmware: 'DD-WRT',
+        manufacturer: 'DD-WRT',
+        model: 'Router / Access Point',
+        type: 'DD-WRT Router',
+        name: 'DD-WRT Router',
+      );
+    }
+
+    if (has('luci') && has('openwrt')) {
+      return const _FirmwareResult(
+        firmware: 'OpenWrt / LuCI',
+        manufacturer: 'OpenWrt',
+        model: 'Router',
+        type: 'OpenWrt Router',
+        name: 'OpenWrt Router',
+      );
+    }
+
+    if (has('routeros') || has('mikrotik')) {
+      return const _FirmwareResult(
+        firmware: 'MikroTik RouterOS',
+        manufacturer: 'MikroTik',
+        model: 'RouterOS Device',
+        type: 'MikroTik Router',
+        name: 'MikroTik Router',
+      );
+    }
+
+    if (has('edgeos') || has('ubiquiti') || has('unifi')) {
+      return const _FirmwareResult(
+        firmware: 'Ubiquiti / EdgeOS',
+        manufacturer: 'Ubiquiti',
+        model: 'Network Device',
+        type: 'Ubiquiti Device',
+        name: 'Ubiquiti Device',
+      );
+    }
+
+    if (has('openwrt')) {
+      return const _FirmwareResult(
+        firmware: 'OpenWrt',
+        manufacturer: 'OpenWrt',
+        model: 'Router',
+        type: 'OpenWrt Router',
+        name: 'OpenWrt Router',
+      );
+    }
+
+    return null;
+  }
+
+  bool _isPrivateIpv4(String host) {
+    if (!_isIpv4(host)) return false;
+    final p = host.split('.').map(int.parse).toList();
+    return p[0] == 10 ||
+        (p[0] == 172 && p[1] >= 16 && p[1] <= 31) ||
+        (p[0] == 192 && p[1] == 168);
+  }
+
+  String _text(dynamic value) {
+    if (value == null) return '';
+    final s = value.toString().trim();
+    return s == 'null' ? '' : s;
+  }
+
+  bool _isIpv4(String ip) {
+    final p = ip.split('.');
+    if (p.length != 4) return false;
+    for (final x in p) {
+      final n = int.tryParse(x);
+      if (n == null || n < 0 || n > 255) return false;
+    }
+    return true;
+  }
+
+  String _vendorFromMac(String mac) {
+    if (_isRealtekMac(mac)) {
+      return 'Realtek Semiconductor Corp.';
+    }
+    return 'غير معروف';
+  }
+
+  List<BasemDevice> get _sortedDevices {
+    final list = _devices.values.toList();
+    list.sort((a, b) => _ipValue(a.ip).compareTo(_ipValue(b.ip)));
+    return list;
+  }
+
+  int _ipValue(String ip) {
+    if (!_isIpv4(ip)) return 0x7fffffff;
+    final p = ip.split('.').map(int.parse).toList();
+    return (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+  }
+
+  IconData _iconFor(BasemDevice d) {
+    final s = '${d.name} ${d.manufacturer} ${d.model} ${d.type}'.toLowerCase();
+
+    if (s.contains('realtek')) {
+      return Icons.memory;
+    }
+    if (s.contains('mikrotik') || s.contains('router') ||
+        s.contains('ubiquiti') || s.contains('ubnt') ||
+        s.contains('nanostation')) {
+      return Icons.router;
+    }
+    if (s.contains('printer') || s.contains('طابع')) {
+      return Icons.print;
+    }
+    if (s.contains('camera') || s.contains('onvif')) {
+      return Icons.videocam;
+    }
+    if (s.contains('tv') || s.contains('cast')) {
+      return Icons.tv;
+    }
+    if (s.contains('phone') || s.contains('android') ||
+        s.contains('iphone')) {
+      return Icons.phone_android;
+    }
+    return Icons.devices;
+  }
+
+  void _showDeviceDetails(BasemDevice device) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('الاكتشاف المدعوم الآن', style: TextStyle(fontWeight: FontWeight.bold)),
-                  SizedBox(height: 6),
-                  Text('• Ubiquiti Discovery v1/v2 عبر UDP 10001'),
-                  Text('• LLDP الحقيقي عبر lldpd على OpenWrt ثم JSON إلى التطبيق'),
-                  SizedBox(height: 8),
-                  Text('OpenWrt collector:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  SizedBox(height: 6),
-                  TextField(controller: _openWrtUrl, decoration: InputDecoration(labelText: 'OpenWrt URL', hintText: 'http://192.168.1.1/')),
-                  SizedBox(height: 6),
-                  TextField(controller: _openWrtToken, obscureText: true, decoration: InputDecoration(labelText: 'Token (اختياري)')),
-                  SizedBox(height: 8),
-                  Row(children: [
-                    Expanded(child: OutlinedButton.icon(onPressed: _scanning ? null : _scanLldp, icon: const Icon(Icons.account_tree), label: const Text('Scan LLDP'))),
-                    const SizedBox(width: 8),
-                    Expanded(child: OutlinedButton.icon(onPressed: _scanning ? null : _scan, icon: const Icon(Icons.radar), label: const Text('Scan Ubiquiti'))),
-                  ]),
+                  Row(
+                    children: [
+                      Icon(_iconFor(device), size: 34, color: Colors.blue),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          device.name,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  _detail('IP', device.ip),
+                  _detail('MAC', device.mac),
+                  _detail('الشركة', device.manufacturer),
+                  _detail('الموديل', device.model),
+                  _detail('النوع', device.type),
+                  _detail('Firmware', device.firmware),
+                  _detail('المصدر', device.source),
+                  if (device.services.isNotEmpty)
+                    _detail('الخدمات', device.services.join(', ')),
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: Text(_message),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _detail(String title, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 85,
+            child: Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          Expanded(
+            child: Text(value.isEmpty ? '-' : value),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _deviceCard(BasemDevice d) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+      child: InkWell(
+        onTap: () => _showDeviceDetails(d),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(_iconFor(d), color: Colors.blue, size: 30),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      d.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'IP : ${d.ip}',
+                      style: TextStyle(color: Colors.grey[700], fontSize: 13),
+                    ),
+                    Text(
+                      'MAC : ${d.mac}',
+                      style: TextStyle(color: Colors.grey[700], fontSize: 13),
+                    ),
+                    if (d.firmware.isNotEmpty && d.firmware != '-')
+                      Row(
+                        children: [
+                          const Icon(Icons.verified, size: 14, color: Colors.deepOrange),
+                          const SizedBox(width: 4),
+                          Text(d.firmware, style: const TextStyle(color: Colors.deepOrange, fontSize: 12, fontWeight: FontWeight.bold)),
+                        ],
+                      )
+                    else if (d.manufacturer != 'غير معروف')
+                      Text(
+                        d.manufacturer,
+                        style: const TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_left, color: Colors.grey),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final devices = _sortedDevices;
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          title: const Text(
+            'BASEM LG',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.1,
+            ),
+          ),
+          actions: [
+            IconButton(
+              tooltip: 'فحص الشبكة',
+              onPressed: _scanning ? null : _scanNetwork,
+              icon: _scanning
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        drawer: Drawer(
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              const DrawerHeader(
+                decoration: BoxDecoration(color: Colors.white),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'باسـم LG',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      'أداة اكتشاف أجهزة الشبكة',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                    Text(
+                      'الإصدار : BASEM LG - 12.0',
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.radar),
+                title: const Text('فحص الشبكة'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _scanNetwork();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.settings_input_component),
+                title: const Text('إعداد جهاز جديد'),
+                onTap: () => Navigator.pop(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.storage),
+                title: const Text('Breed Enter'),
+                onTap: () => Navigator.pop(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('حول التطبيق'),
+                onTap: () {
+                  Navigator.pop(context);
+                  showAboutDialog(
+                    context: context,
+                    applicationName: 'BASEM LG',
+                    applicationVersion: '12.0.1',
+                    applicationLegalese: 'Local Network Discovery',
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        body: Column(
+          children: [
+            Card(
+              margin: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    Icon(
+                      _scanning ? Icons.radar : Icons.wifi,
+                      color: _scanning ? Colors.orange : Colors.green,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'الأجهزة المكتشفة : (${devices.length})',
+                            style: const TextStyle(
+                              color: Colors.blue,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            _status,
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            const Divider(height: 8),
-            Expanded(
-              child: _devices.isEmpty
-                  ? const Center(
+            if (_scanning) const LinearProgressIndicator(minHeight: 2),
+            if (_error != null)
+              Container(
+                margin: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline, color: Colors.red),
+                    const SizedBox(width: 8),
+                    Expanded(
                       child: Text(
-                        'اضغط Scan Network لبدء الاكتشاف',
-                        textAlign: TextAlign.center,
+                        _error!,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Expanded(
+              child: devices.isEmpty && !_scanning
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.wifi_find,
+                            size: 70,
+                            color: Colors.grey[400],
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'لم يتم العثور على أجهزة',
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'اتصل بنفس شبكة Wi‑Fi ثم اضغط فحص الشبكة',
+                            style: TextStyle(color: Colors.grey[600]),
+                          ),
+                          const SizedBox(height: 18),
+                          FilledButton.icon(
+                            onPressed: _scanNetwork,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('فحص الشبكة'),
+                          ),
+                        ],
                       ),
                     )
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 90),
-                      itemCount: _devices.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
-                      itemBuilder: (context, i) {
-                        final d = _devices[i];
-                        return Card(
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              child: Icon(d.model.toLowerCase().contains('router')
-                                  ? Icons.router
-                                  : Icons.wifi),
-                            ),
-                            title: Text(d.title),
-                            subtitle: Text([
-                              if (d.ip.isNotEmpty) 'IP: ${d.ip}',
-                              if (d.mac.isNotEmpty) 'MAC: ${d.mac}',
-                              if (d.hostname.isNotEmpty) 'Host: ${d.hostname}',
-                              if (d.firmware.isNotEmpty) 'FW: ${d.firmware}',
-                              if (d.protocol.isNotEmpty) d.protocol,
-                              if (d.status.isNotEmpty) d.status,
-                            ].join('\n')),
-                            isThreeLine: true,
-                          ),
-                        );
-                      },
+                  : ListView.builder(
+                      padding: const EdgeInsets.only(top: 5, bottom: 14),
+                      itemCount: devices.length,
+                      itemBuilder: (_, i) => _deviceCard(devices[i]),
                     ),
             ),
           ],
+        ),
+        bottomNavigationBar: Container(
+          padding: const EdgeInsets.all(12),
+          color: Colors.white,
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.wifi, color: Colors.green),
+              SizedBox(width: 8),
+              Text(
+                'الشبكة المحلية',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -1,21 +1,20 @@
-
 name: basem_lg
-description: Ubiquiti LAN discovery application.
+description: BASEM LG - Arabic local network device discovery app.
 publish_to: "none"
-version: 1.0.0+1
+version: 12.0.1+13
 
 environment:
-  sdk: ">=3.2.0 <4.0.0"
+  sdk: ">=3.5.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  http: ^1.2.2
+  flutter_local_device_discovery: ^1.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.0
+  flutter_lints: ^5.0.0
 
 flutter:
   uses-material-design: true
