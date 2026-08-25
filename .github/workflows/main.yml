@@ -24,10 +24,10 @@ jobs:
         run: flutter pub get
 
       - name: Build APK
-        run: flutter build apk --release --no-puh
+        run: flutter -releas apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: BASEM-LG-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build/app/outputs/flutter-apk/apreleasese.apk
