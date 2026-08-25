@@ -26,14 +26,49 @@ jobs:
           cp pubspec.yaml temp_backup/
           cp -r lib temp_backup/
           
-          # إنشاء مشروع جديد نظيف مؤقت بالاسم الحالي
+          # إنشاء مشروع جديد بالاسم المطلوب "ALSAMAN" ليكون اسم التطبيق
           cd ..
-          flutter create temp_project --platforms=android
+          flutter create alsaman_app --project-name=alsaman --platforms=android
           
+          # حقن الأذونات داخل AndroidManifest.xml تلقائياً
+          MANIFEST_PATH="alsaman_app/android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST_PATH" ]; then
+            sed -i '/<application/i \
+                <uses-permission android:name="android.permission.INTERNET" />\
+                <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\
+                <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\
+                <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />\
+                <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />\
+                <uses-permission android:name="android.permission.BLUETOOTH" />\
+                <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />\
+                <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />\
+                <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />' "$MANIFEST_PATH"
+          fi
+
+          # تعديل اسم التطبيق الظاهر (label) في ملف AndroidManifest.xml ليكون ALSAMAN
+          if [ -f "$MANIFEST_PATH" ]; then
+            sed -i 's/android:label="[^"]*"/android:label="ALSAMAN"/g' "$MANIFEST_PATH"
+          fi
+
           # نقل الملفات الحديثة للمشروع الجديد
-          cd temp_project
+          cd alsaman_app
           rm -rf pubspec.yaml lib
           cp -r ../BASEM-LG/temp_backup/pubspec.yaml .
+          cp -r ../BASEM-LG/temp_backup/lib .
+          
+          # جلب الحزم والبناء
+          flutter pub get
+          flutter build apk --release
+          
+          # نقل ملف الـ APK الناتج
+          mkdir -p ../BASEM-LG/build/app/outputs/flutter-apk/
+          cp build/app/outputs/flutter-apk/app-release.apk ../BASEM-LG/build/app/outputs/flutter-apk/
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ALSAMAN-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
           cp -r ../BASEM-LG/temp_backup/lib .
           
           # الانتقال للمشروع وجلب الحزم والبناء
