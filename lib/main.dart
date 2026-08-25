@@ -17,11 +17,29 @@ class BasemLgApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'ALSAMAN', // تم التعديل هنا
+      title: 'ALSAMAN',
       theme: ThemeData(
         useMaterial3: true,
-        colorSchemeSeed: Colors.blue,
-        scaffoldBackgroundColor: const Color(0xFFF2F2F2),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.indigo,
+          brightness: Brightness.light,
+        ),
+        scaffoldBackgroundColor: const Color(0xFFF4F6F9),
+        cardTheme: CardTheme(
+          elevation: 2,
+          shadowColor: Colors.black.withOpacity(0.05),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          color: Colors.white,
+          surfaceTintColor: Colors.white,
+        ),
+        appBarTheme: const AppBarTheme(
+          centerTitle: true,
+          elevation: 0,
+          backgroundColor: Colors.indigo,
+          foregroundColor: Colors.white,
+        ),
       ),
       home: const HomeScreen(),
     );
@@ -520,8 +538,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   Row(
                     children: [
-                      Icon(_iconFor(device), size: 34, color: Colors.blue),
-                      const SizedBox(width: 12),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(_iconFor(device), size: 30, color: Colors.indigo),
+                      ),
+                      const SizedBox(width: 14),
                       Expanded(
                         child: Text(
                           device.name,
@@ -533,7 +558,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 20),
                   _detail('IP', device.ip),
                   _detail('MAC', device.mac),
                   _detail('الشركة', device.manufacturer),
@@ -562,11 +587,14 @@ class _HomeScreenState extends State<HomeScreen> {
             width: 85,
             child: Text(
               title,
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
             ),
           ),
           Expanded(
-            child: Text(value.isEmpty ? '-' : value),
+            child: Text(
+              value.isEmpty ? '-' : value,
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
           ),
         ],
       ),
@@ -574,65 +602,102 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _deviceCard(BasemDevice d) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-      child: InkWell(
-        onTap: () => _showDeviceDetails(d),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(.08),
-                  borderRadius: BorderRadius.circular(12),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _showDeviceDetails(d),
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Container(
+                  width: 54,
+                  height: 54,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Colors.indigo.shade300, Colors.indigo.shade600],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(_iconFor(d), color: Colors.white, size: 28),
                 ),
-                child: Icon(_iconFor(d), color: Colors.blue, size: 30),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      d.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        d.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'IP : ${d.ip}',
-                      style: TextStyle(color: Colors.grey[700], fontSize: 13),
-                    ),
-                    Text(
-                      'MAC : ${d.mac}',
-                      style: TextStyle(color: Colors.grey[700], fontSize: 13),
-                    ),
-                    if (d.firmware.isNotEmpty && d.firmware != '-')
+                      const SizedBox(height: 6),
                       Row(
                         children: [
-                          const Icon(Icons.verified, size: 14, color: Colors.deepOrange),
+                          const Icon(Icons.lan, size: 13, color: Colors.grey),
                           const SizedBox(width: 4),
-                          Text(d.firmware, style: const TextStyle(color: Colors.deepOrange, fontSize: 12, fontWeight: FontWeight.bold)),
+                          Text(
+                            d.ip,
+                            style: TextStyle(color: Colors.grey[700], fontSize: 13, fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(width: 10),
+                          const Icon(Icons.fingerprint, size: 13, color: Colors.grey),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              d.mac,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                            ),
+                          ),
                         ],
-                      )
-                    else if (d.manufacturer != 'غير معروف')
-                      Text(
-                        d.manufacturer,
-                        style: const TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.w600),
                       ),
-                  ],
+                      const SizedBox(height: 6),
+                      if (d.firmware.isNotEmpty && d.firmware != '-')
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.deepOrange.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            d.firmware,
+                            style: const TextStyle(color: Colors.deepOrange, fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        )
+                      else if (d.manufacturer != 'غير معروف')
+                        Text(
+                          d.manufacturer,
+                          style: const TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-              const Icon(Icons.chevron_left, color: Colors.grey),
-            ],
+                const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+              ],
+            ),
           ),
         ),
       ),
@@ -647,10 +712,8 @@ class _HomeScreenState extends State<HomeScreen> {
       textDirection: TextDirection.rtl,
       child: Scaffold(
         appBar: AppBar(
-          backgroundColor: Colors.white,
-          elevation: 0,
           title: const Text(
-            'ALSAMAN', // تم التعديل هنا
+            'ALSAMAN',
             style: TextStyle(
               fontWeight: FontWeight.bold,
               letterSpacing: 1.1,
@@ -664,7 +727,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? const SizedBox(
                       width: 22,
                       height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                     )
                   : const Icon(Icons.refresh),
             ),
@@ -674,33 +737,42 @@ class _HomeScreenState extends State<HomeScreen> {
           child: ListView(
             padding: EdgeInsets.zero,
             children: [
-              const DrawerHeader(
-                decoration: BoxDecoration(color: Colors.white),
-                child: Column(
+              DrawerHeader(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.indigo.shade700, Colors.indigo.shade400],
+                    begin: Alignment.topRight,
+                    end: Alignment.bottomLeft,
+                  ),
+                ),
+                child: const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     Text(
-                      'السمان',
+                      '👑 ALSAMAN 👑',
                       style: TextStyle(
-                        fontSize: 28,
+                        color: Colors.white,
+                        fontSize: 22,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+                    SizedBox(height: 4),
+                    Text(
+                      'أداة اكتشاف أجهزة الشبكة المتقدمة',
+                      style: TextStyle(color: Colors.white70, fontSize: 13),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'الإصدار : 12.0.1',
+                      style: TextStyle(color: Colors.white60, fontSize: 11),
+                    ),
                     SizedBox(height: 8),
-                    Text(
-                      'أداة اكتشاف أجهزة الشبكة',
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                    Text(
-                      'الإصدار : 👑ALSAMAN👑 - 12.0',
-                      style: TextStyle(color: Colors.grey, fontSize: 12),
-                    ),
                   ],
                 ),
               ),
               ListTile(
-                leading: const Icon(Icons.radar),
+                leading: const Icon(Icons.radar, color: Colors.indigo),
                 title: const Text('فحص الشبكة'),
                 onTap: () {
                   Navigator.pop(context);
@@ -708,17 +780,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.settings_input_component),
+                leading: const Icon(Icons.settings_input_component, color: Colors.indigo),
                 title: const Text('إعداد جهاز جديد'),
                 onTap: () => Navigator.pop(context),
               ),
               ListTile(
-                leading: const Icon(Icons.storage),
+                leading: const Icon(Icons.storage, color: Colors.indigo),
                 title: const Text('Breed Enter'),
                 onTap: () => Navigator.pop(context),
               ),
+              const Divider(),
               ListTile(
-                leading: const Icon(Icons.info_outline),
+                leading: const Icon(Icons.info_outline, color: Colors.indigo),
                 title: const Text('حول التطبيق'),
                 onTap: () {
                   Navigator.pop(context);
@@ -735,45 +808,61 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         body: Column(
           children: [
-            Card(
+            Container(
               margin: const EdgeInsets.fromLTRB(14, 12, 14, 6),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Icon(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.03),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: (_scanning ? Colors.orange : Colors.green).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
                       _scanning ? Icons.radar : Icons.wifi,
                       color: _scanning ? Colors.orange : Colors.green,
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'الأجهزة المكتشفة : (${devices.length})',
-                            style: const TextStyle(
-                              color: Colors.blue,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'الأجهزة المكتشفة : (${devices.length})',
+                          style: const TextStyle(
+                            color: Colors.indigo,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
                           ),
-                          const SizedBox(height: 3),
-                          Text(
-                            _status,
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 12,
-                            ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          _status,
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 12,
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-            if (_scanning) const LinearProgressIndicator(minHeight: 2),
+            if (_scanning) const LinearProgressIndicator(minHeight: 2, color: Colors.indigo),
             if (_error != null)
               Container(
                 margin: const EdgeInsets.fromLTRB(14, 8, 14, 0),
@@ -821,6 +910,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 18),
                           FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.indigo,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
                             onPressed: _scanNetwork,
                             icon: const Icon(Icons.refresh),
                             label: const Text('فحص الشبكة'),
@@ -829,7 +924,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     )
                   : ListView.builder(
-                      padding: const EdgeInsets.only(top: 5, bottom: 14),
+                      padding: const EdgeInsets.only(top: 4, bottom: 14),
                       itemCount: devices.length,
                       itemBuilder: (_, i) => _deviceCard(devices[i]),
                     ),
@@ -838,15 +933,24 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         bottomNavigationBar: Container(
           padding: const EdgeInsets.all(12),
-          color: Colors.white,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.03),
+                blurRadius: 4,
+                offset: const Offset(0, -2),
+              ),
+            ],
+          ),
           child: const Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.wifi, color: Colors.green),
+              Icon(Icons.wifi, color: Colors.green, size: 18),
               SizedBox(width: 8),
               Text(
-                'الشبكة المحلية',
-                style: TextStyle(fontWeight: FontWeight.w600),
+                'الشبكة المحلية - ALSAMAN',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
               ),
             ],
           ),
