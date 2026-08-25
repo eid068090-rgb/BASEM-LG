@@ -21,19 +21,34 @@ jobs:
 
       - name: Create fresh Flutter project structure
         run: |
-          # الاحتفاظ بملف pubspec.yaml و مجلد lib
           mkdir -p temp_backup
           cp pubspec.yaml temp_backup/
           cp -r lib temp_backup/
           
-          # إنشاء مشروع جديد بالاسم المطلوب "ALSAMAN" ليكون اسم التطبيق
           cd ..
           flutter create alsaman_app --project-name=alsaman --platforms=android
           
-          # حقن الأذونات داخل AndroidManifest.xml تلقائياً
           MANIFEST_PATH="alsaman_app/android/app/src/main/AndroidManifest.xml"
           if [ -f "$MANIFEST_PATH" ]; then
-            sed -i '/<application/i \
+            sed -i 's/android:label="[^"]*"/android:label="ALSAMAN"/g' "$MANIFEST_PATH"
+          fi
+
+          cd alsaman_app
+          rm -rf pubspec.yaml lib
+          cp -r ../BASEM-LG/temp_backup/pubspec.yaml .
+          cp -r ../BASEM-LG/temp_backup/lib .
+          
+          flutter pub get
+          flutter build apk --release
+          
+          mkdir -p ../BASEM-LG/build/app/outputs/flutter-apk/
+          cp build/app/outputs/flutter-apk/app-release.apk ../BASEM-LG/build/app/outputs/flutter-apk/
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ALSAMAN-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
                 <uses-permission android:name="android.permission.INTERNET" />\
                 <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\
                 <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\
