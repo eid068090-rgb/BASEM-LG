@@ -1,0 +1,38 @@
+#!/bin/sh
+# BASEM-LG LLDP collector CGI for OpenWrt.
+# Install as /www/cgi-bin/basem-lldp and chmod +x.
+# It reads neighbors from the real lldpd daemon using lldpcli JSON.
+
+TOKEN_FILE=/etc/basem-lldp.token
+TOKEN=""
+[ -r "$TOKEN_FILE" ] && TOKEN="$(cat "$TOKEN_FILE")"
+
+if [ -n "$TOKEN" ] && [ "${HTTP_X_BASEM_LG_TOKEN:-}" != "$TOKEN" ]; then
+    printf 'Status: 401 Unauthorized\r\nContent-Type: application/json\r\n\r\n'
+    printf '%s\n' '{"error":"unauthorized"}'
+    exit 0
+fi
+
+if ! command -v lldpcli >/dev/null 2>&1; then
+    printf 'Status: 503 Service Unavailable\r\nContent-Type: application/json\r\n\r\n'
+    printf '%s\n' '{"error":"lldpcli_not_installed"}'
+    exit 0
+fi
+
+if ! pidof lldpd >/dev/null 2>&1; then
+    printf 'Status: 503 Service Unavailable\r\nContent-Type: application/json\r\n\r\n'
+    printf '%s\n' '{"error":"lldpd_not_running"}'
+    exit 0
+fi
+
+# json0 is designed for stable parsing regardless of interface/neighbor count.
+JSON="$(lldpcli -f json0 show neighbors details 2>/dev/null)"
+RC=$?
+if [ $RC -ne 0 ] || [ -z "$JSON" ]; then
+    printf 'Status: 502 Bad Gateway\r\nContent-Type: application/json\r\n\r\n'
+    printf '%s\n' '{"error":"lldpcli_failed"}'
+    exit 0
+fi
+
+printf 'Content-Type: application/json; charset=utf-8\r\nCache-Control: no-store\r\n\r\n'
+printf '{"source":"openwrt-lldpd","lldp":%s}\n' "$JSON"

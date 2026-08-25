@@ -1,0 +1,8 @@
+<!-- Merge these into android/app/src/main/AndroidManifest.xml after `flutter create .` -->
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+<uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+<uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
+<!-- Add android:usesCleartextTraffic="true" to the existing <application>
+     only if your OpenWrt endpoint is HTTP instead of HTTPS. -->
