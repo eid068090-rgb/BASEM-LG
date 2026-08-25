@@ -1,4 +1,3 @@
-# trigger action
 name: Build APK
 
 on:
@@ -12,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Flutter
@@ -20,17 +19,33 @@ jobs:
         with:
           flutter-version: '3.47.1'
 
-      - name: Enable Android support
-        run: flutter create . --platforms=android
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Build APK
-        run: flutter build apk --release
+      - name: Create fresh Flutter project structure
+        run: |
+          # الاحتفاظ بملف pubspec.yaml و مجلد lib
+          mkdir -p temp_backup
+          cp pubspec.yaml temp_backup/
+          cp -r lib temp_backup/
+          
+          # إنشاء مشروع جديد نظيف مؤقت بالاسم الحالي
+          cd ..
+          flutter create temp_project --platforms=android
+          
+          # نقل الملفات الحديثة للمشروع الجديد
+          cd temp_project
+          rm -rf pubspec.yaml lib
+          cp -r ../BASEM-LG/temp_backup/pubspec.yaml .
+          cp -r ../BASEM-LG/temp_backup/lib .
+          
+          # الانتقال للمشروع وجلب الحزم والبناء
+          flutter pub get
+          flutter build apk --release
+          
+          # نقل ملف الـ APK الناتج إلى مسار الرفع
+          mkdir -p ../BASEM-LG/build/app/outputs/flutter-apk/
+          cp build/app/outputs/flutter-apk/app-release.apk ../BASEM-LG/build/app/outputs/flutter-apk/
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: BASEM-LG-APK
-          path: build/app/outputs/flutter-apk/apreleasese.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
