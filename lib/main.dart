@@ -10,14 +10,55 @@ void main() {
   runApp(const BasemLgApp());
 }
 
-class BasemLgApp extends StatelessWidget {
+class BasemLgApp extends StatefulWidget {
   const BasemLgApp({super.key});
+
+  @override
+  State<BasemLgApp> createState() => _BasemLgAppState();
+
+  static _BasemLgAppState of(BuildContext context) =>
+      context.findAncestorStateOfType<_BasemLgAppState>()!;
+}
+
+class _BasemLgAppState extends State<BasemLgApp> {
+  ThemeMode _themeMode = ThemeMode.system;
+  bool _ubntDiscovery = true;
+  bool _rosDiscovery = true;
+  bool _keepAwake = false;
+
+  void updateSettings({
+    ThemeMode? themeMode,
+    bool? ubntDiscovery,
+    bool? rosDiscovery,
+    bool? keepAwake,
+  }) {
+    setState(() {
+      if (themeMode != null) _themeMode = themeMode;
+      if (ubntDiscovery != null) _ubntDiscovery = ubntDiscovery;
+      if (rosDiscovery != null) _rosDiscovery = rosDiscovery;
+      if (keepAwake != null) _keepAwake = keepAwake;
+    });
+  }
+
+  void resetSettings() {
+    setState(() {
+      _themeMode = ThemeMode.system;
+      _ubntDiscovery = true;
+      _rosDiscovery = true;
+      _keepAwake = false;
+    });
+  }
+
+  bool get ubntDiscovery => _ubntDiscovery;
+  bool get rosDiscovery => _rosDiscovery;
+  bool get keepAwake => _keepAwake;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'ALSAMAN',
+      themeMode: _themeMode,
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
@@ -25,6 +66,20 @@ class BasemLgApp extends StatelessWidget {
           brightness: Brightness.light,
         ),
         scaffoldBackgroundColor: const Color(0xFFF4F6F9),
+        appBarTheme: const AppBarTheme(
+          centerTitle: true,
+          elevation: 0,
+          backgroundColor: Colors.indigo,
+          foregroundColor: Colors.white,
+        ),
+      ),
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.indigo,
+          brightness: Brightness.dark,
+        ),
+        scaffoldBackgroundColor: const Color(0xFF121212),
         appBarTheme: const AppBarTheme(
           centerTitle: true,
           elevation: 0,
@@ -98,9 +153,7 @@ class _HomeScreenState extends State<HomeScreen> {
     '_ftp._tcp',
   };
 
-  final FlutterLocalDeviceDiscovery _discovery =
-      FlutterLocalDeviceDiscovery();
-
+  final FlutterLocalDeviceDiscovery _discovery = FlutterLocalDeviceDiscovery();
   final Map<String, BasemDevice> _devices = {};
 
   bool _scanning = false;
@@ -211,9 +264,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final existing = _devices[ip];
 
         _devices[ip] = BasemDevice(
-          name: existing?.name.isNotEmpty == true
-              ? existing!.name
-              : 'جهاز شبكة',
+          name: existing?.name.isNotEmpty == true ? existing!.name : 'جهاز شبكة',
           ip: ip,
           mac: mac.isEmpty ? '-' : mac,
           manufacturer: existing?.manufacturer ?? _vendorFromMac(mac),
@@ -260,7 +311,9 @@ class _HomeScreenState extends State<HomeScreen> {
         mac: mac,
         manufacturer: isRealtek ? 'Realtek Semiconductor Corp.' : vendor,
         model: model.isNotEmpty ? model : (old?.model ?? '-'),
-        type: isRealtek ? 'Realtek Network Device' : (type.isNotEmpty ? type : (old?.type ?? 'جهاز شبكة')),
+        type: isRealtek
+            ? 'Realtek Network Device'
+            : (type.isNotEmpty ? type : (old?.type ?? 'جهاز شبكة')),
         services: {
           ...?old?.services,
           ...services,
@@ -274,7 +327,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void _applyRealtekDetection() {
     for (final entry in _devices.entries.toList()) {
       final old = entry.value;
-      final realtek = _isRealtekMac(old.mac) || _isRealtekText(old.manufacturer);
+      final realtek =
+          _isRealtekMac(old.mac) || _isRealtekText(old.manufacturer);
       if (!realtek) continue;
 
       _devices[entry.key] = BasemDevice(
@@ -333,9 +387,7 @@ class _HomeScreenState extends State<HomeScreen> {
               : (result.manufacturer != 'غير معروف'
                   ? result.manufacturer
                   : old.manufacturer),
-          model: result.model != '-'
-              ? result.model
-              : old.model,
+          model: result.model != '-' ? result.model : old.model,
           type: result.type,
           services: old.services,
           source: 'HTTP/HTTPS Firmware Fingerprint',
@@ -356,7 +408,8 @@ class _HomeScreenState extends State<HomeScreen> {
         client.connectionTimeout = const Duration(milliseconds: 900);
         client.idleTimeout = const Duration(milliseconds: 900);
         if (https) {
-          client.badCertificateCallback = (cert, host, p) => _isPrivateIpv4(host);
+          client.badCertificateCallback =
+              (cert, host, p) => _isPrivateIpv4(host);
         }
 
         final request = await client
@@ -366,7 +419,8 @@ class _HomeScreenState extends State<HomeScreen> {
         request.maxRedirects = 2;
         request.headers.set('User-Agent', 'ALSAMAN-Network-Scanner/12.0.1');
 
-        final response = await request.close().timeout(const Duration(seconds: 2));
+        final response =
+            await request.close().timeout(const Duration(seconds: 2));
         final bytes = <int>[];
         await for (final chunk in response) {
           bytes.addAll(chunk);
@@ -376,7 +430,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
         final body = String.fromCharCodes(bytes).toLowerCase();
         final server = (response.headers.value('server') ?? '').toLowerCase();
-        final location = (response.headers.value('location') ?? '').toLowerCase();
+        final location =
+            (response.headers.value('location') ?? '').toLowerCase();
         final haystack = '$body\n$server\n$location';
 
         final result = _matchFirmware(haystack);
@@ -491,8 +546,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (s.contains('realtek')) {
       return Icons.memory;
     }
-    if (s.contains('mikrotik') || s.contains('router') ||
-        s.contains('ubiquiti') || s.contains('ubnt') ||
+    if (s.contains('mikrotik') ||
+        s.contains('router') ||
+        s.contains('ubiquiti') ||
+        s.contains('ubnt') ||
         s.contains('nanostation')) {
       return Icons.router;
     }
@@ -505,11 +562,76 @@ class _HomeScreenState extends State<HomeScreen> {
     if (s.contains('tv') || s.contains('cast')) {
       return Icons.tv;
     }
-    if (s.contains('phone') || s.contains('android') ||
-        s.contains('iphone')) {
+    if (s.contains('phone') || s.contains('android') || s.contains('iphone')) {
       return Icons.phone_android;
     }
     return Icons.devices;
+  }
+
+  void _showJoinUsDialog() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'ALSAMAN',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'انضم إلينا',
+                  style: TextStyle(fontSize: 16, color: Colors.grey),
+                ),
+                const SizedBox(height: 20),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(50),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () {},
+                  icon: const Icon(Icons.facebook, color: Colors.blue),
+                  label: const Text('فيسبوك', style: TextStyle(fontSize: 16)),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(50),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () {},
+                  icon: const Icon(Icons.chat, color: Colors.green),
+                  label: const Text('واتساب', style: TextStyle(fontSize: 16)),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(50),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () {},
+                  icon: const Icon(Icons.phone, color: Colors.grey),
+                  label: const Text('رقم الهاتف', style: TextStyle(fontSize: 16)),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _showDeviceDetails(BasemDevice device) {
@@ -535,7 +657,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           color: Colors.indigo.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Icon(_iconFor(device), size: 30, color: Colors.indigo),
+                        child: Icon(_iconFor(device),
+                            size: 30, color: Colors.indigo),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
@@ -578,7 +701,8 @@ class _HomeScreenState extends State<HomeScreen> {
             width: 85,
             child: Text(
               title,
-              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+              style:
+                  const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
             ),
           ),
           Expanded(
@@ -596,7 +720,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -640,7 +764,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: Colors.black87,
                         ),
                       ),
                       const SizedBox(height: 6),
@@ -650,17 +773,22 @@ class _HomeScreenState extends State<HomeScreen> {
                           const SizedBox(width: 4),
                           Text(
                             d.ip,
-                            style: TextStyle(color: Colors.grey[700], fontSize: 13, fontWeight: FontWeight.w500),
+                            style: TextStyle(
+                                color: Colors.grey[700],
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500),
                           ),
                           const SizedBox(width: 10),
-                          const Icon(Icons.fingerprint, size: 13, color: Colors.grey),
+                          const Icon(Icons.fingerprint,
+                              size: 13, color: Colors.grey),
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
                               d.mac,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                              style: TextStyle(
+                                  color: Colors.grey[600], fontSize: 12),
                             ),
                           ),
                         ],
@@ -668,20 +796,27 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 6),
                       if (d.firmware.isNotEmpty && d.firmware != '-')
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
                             color: Colors.deepOrange.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
                             d.firmware,
-                            style: const TextStyle(color: Colors.deepOrange, fontSize: 11, fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                                color: Colors.deepOrange,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold),
                           ),
                         )
                       else if (d.manufacturer != 'غير معروف')
                         Text(
                           d.manufacturer,
-                          style: const TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.w600),
+                          style: const TextStyle(
+                              color: Colors.green,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600),
                         ),
                     ],
                   ),
@@ -718,7 +853,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? const SizedBox(
                       width: 22,
                       height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
                     )
                   : const Icon(Icons.refresh),
             ),
@@ -741,7 +877,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     Text(
-                      '👑 ALSAMAN 👑',
+                      'ALSAMAN',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 22,
@@ -763,24 +899,27 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               ListTile(
-                leading: const Icon(Icons.radar, color: Colors.indigo),
-                title: const Text('فحص الشبكة'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _scanNetwork();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.settings_input_component, color: Colors.indigo),
+                leading: const Icon(Icons.cube_outlined, color: Colors.indigo),
                 title: const Text('إعداد جهاز جديد'),
                 onTap: () => Navigator.pop(context),
               ),
               ListTile(
-                leading: const Icon(Icons.storage, color: Colors.indigo),
+                leading: const Icon(Icons.breakfast_dining_outlined, color: Colors.indigo),
                 title: const Text('Breed Enter'),
                 onTap: () => Navigator.pop(context),
               ),
-              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.settings_outlined, color: Colors.indigo),
+                title: const Text('الإعدادات'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const SettingsScreen()),
+                  );
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.info_outline, color: Colors.indigo),
                 title: const Text('حول التطبيق'),
@@ -788,7 +927,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Navigator.pop(context);
                   showAboutDialog(
                     context: context,
-                    applicationName: '👑ALSAMAN👑',
+                    applicationName: 'ALSAMAN',
                     applicationVersion: '12.0.1',
                     applicationLegalese: 'Local Network Discovery',
                   );
@@ -803,7 +942,7 @@ class _HomeScreenState extends State<HomeScreen> {
               margin: const EdgeInsets.fromLTRB(14, 12, 14, 6),
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
@@ -818,7 +957,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: (_scanning ? Colors.orange : Colors.green).withOpacity(0.1),
+                      color: (_scanning ? Colors.orange : Colors.green)
+                          .withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
@@ -853,7 +993,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
-            if (_scanning) const LinearProgressIndicator(minHeight: 2, color: Colors.indigo),
+            if (_scanning)
+              const LinearProgressIndicator(
+                  minHeight: 2, color: Colors.indigo),
             if (_error != null)
               Container(
                 margin: const EdgeInsets.fromLTRB(14, 8, 14, 0),
@@ -925,7 +1067,7 @@ class _HomeScreenState extends State<HomeScreen> {
         bottomNavigationBar: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Theme.of(context).cardColor,
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.03),
@@ -934,17 +1076,127 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
-          child: const Row(
+          child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.wifi, color: Colors.green, size: 18),
-              SizedBox(width: 8),
-              Text(
+              const Icon(Icons.wifi, color: Colors.green, size: 18),
+              const SizedBox(width: 8),
+              const Text(
                 'الشبكة المحلية - ALSAMAN',
                 style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
               ),
+              const SizedBox(width: 15),
+              TextButton(
+                onPressed: _showJoinUsDialog,
+                child: const Text('انضم إلينا',
+                    style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold)),
+              ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final appState = BasemLgApp.of(context);
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('الإعدادات'),
+        ),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text(
+              'إعدادات الاكتشاف',
+              style: TextStyle(
+                  color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              title: const Text('اكتشاف أجهزة Ubnt'),
+              value: appState.ubntDiscovery,
+              onChanged: (val) => appState.updateSettings(ubntDiscovery: val),
+            ),
+            SwitchListTile(
+              title: const Text('اكتشاف أجهزة ROS'),
+              value: appState.rosDiscovery,
+              onChanged: (val) => appState.updateSettings(rosDiscovery: val),
+            ),
+            const Divider(height: 30),
+            const Text(
+              'التطبيق والمظهر العام',
+              style: TextStyle(
+                  color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Text('حدد سمة التطبيق', style: TextStyle(color: Colors.grey)),
+            ),
+            RadioListTile<ThemeMode>(
+              title: const Text('النظام الافتراضي'),
+              value: ThemeMode.system,
+              groupValue: Theme.of(context).brightness == Brightness.dark
+                  ? ThemeMode.dark
+                  : ThemeMode.light, // Simplified for illustration
+              onChanged: (mode) {
+                if (mode != null) appState.updateSettings(themeMode: mode);
+              },
+            ),
+            RadioListTile<ThemeMode>(
+              title: const Text('ضوء النهار'),
+              value: ThemeMode.light,
+              groupValue: Theme.of(context).brightness == Brightness.dark
+                  ? ThemeMode.dark
+                  : ThemeMode.light,
+              onChanged: (mode) {
+                if (mode != null) appState.updateSettings(themeMode: mode);
+              },
+            ),
+            RadioListTile<ThemeMode>(
+              title: const Text('وضع الليل'),
+              value: ThemeMode.dark,
+              groupValue: Theme.of(context).brightness == Brightness.dark
+                  ? ThemeMode.dark
+                  : ThemeMode.light,
+              onChanged: (mode) {
+                if (mode != null) appState.updateSettings(themeMode: mode);
+              },
+            ),
+            SwitchListTile(
+              title: const Text('إبقاء الشاشة نشطة أثناء تشغيل التطبيق'),
+              value: appState.keepAwake,
+              onChanged: (val) => appState.updateSettings(keepAwake: val),
+            ),
+            const SizedBox(height: 20),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: appState.resetSettings,
+              icon: const Icon(Icons.refresh),
+              label: const Text('إستعادة الإعدادات الافتراضية'),
+            ),
+            const SizedBox(height: 20),
+            const Center(
+              child: Text(
+                'الإصدار : 12.0 - ALSAMAN',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+          ],
         ),
       ),
     );
