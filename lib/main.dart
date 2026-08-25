@@ -365,7 +365,7 @@ class _HomeScreenState extends State<HomeScreen> {
             .timeout(const Duration(seconds: 1));
         request.followRedirects = true;
         request.maxRedirects = 2;
-        request.headers.set('User-Agent', 'BASEM-LG-Network-Scanner/12.0.1');
+        request.headers.set('User-Agent', 'ALSAMAN-Network-Scanner/12.0.1');
 
         final response = await request.close().timeout(const Duration(seconds: 2));
         final bytes = <int>[];
@@ -693,7 +693,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      'باسـم LG',
+                      'السمان',
                       style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
@@ -705,7 +705,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       style: TextStyle(color: Colors.grey),
                     ),
                     Text(
-                      'الإصدار : BASEM LG - 12.0',
+                      'الإصدار : 👑ALSAMAN👑 - 12.0',
                       style: TextStyle(color: Colors.grey, fontSize: 12),
                     ),
                   ],
@@ -736,7 +736,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Navigator.pop(context);
                   showAboutDialog(
                     context: context,
-                    applicationName: 'BASEM LG',
+                    applicationName: '👑ALSAMAN👑',
                     applicationVersion: '12.0.1',
                     applicationLegalese: 'Local Network Discovery',
                   );
