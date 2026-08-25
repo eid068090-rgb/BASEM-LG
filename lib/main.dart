@@ -17,7 +17,7 @@ class BasemLgApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'BASEM LG',
+      title: 'ALSAMAN', // تم التعديل هنا
       theme: ThemeData(
         useMaterial3: true,
         colorSchemeSeed: Colors.blue,
@@ -125,10 +125,8 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      // 1) قراءة جدول الجيران/ARP عندما يسمح Android بذلك.
       await _loadNeighborTable();
 
-      // 2) اكتشاف الأجهزة والخدمات بواسطة mDNS/DNS-SD/SSDP/UPnP/WS-Discovery.
       final request = LocalDiscoveryRequest(
         mode: LocalDiscoveryMode.servicesAndDevices,
         duration: const Duration(seconds: 10),
@@ -164,8 +162,6 @@ class _HomeScreenState extends State<HomeScreen> {
         _mergeLocalDevice(device);
       }
 
-      // Identify Realtek hardware from vendor/OUI and common network firmware
-      // from local web-management fingerprints.
       _applyRealtekDetection();
       await _fingerprintKnownDevices();
       _applyRealtekDetection();
@@ -219,9 +215,7 @@ class _HomeScreenState extends State<HomeScreen> {
           firmware: existing?.firmware ?? '-',
         );
       }
-    } catch (_) {
-      // بعض إصدارات Android أو الشبكات تمنع قراءة جدول الجيران.
-    }
+    } catch (_) {}
   }
 
   void _mergeLocalDevice(LocalDevice device) {
@@ -304,10 +298,6 @@ class _HomeScreenState extends State<HomeScreen> {
         .replaceAll('-', '')
         .replaceAll('.', '');
 
-    // Current Realtek registrations used here for local identification:
-    // 00:E0:4C and FC:93:4E (MA-L), plus 8C:1F:64:D5:A (MA-S).
-    // A Realtek OUI identifies the network hardware/chipset, not necessarily
-    // the finished device brand or firmware.
     return normalized.startsWith('00E04C') ||
         normalized.startsWith('FC934E') ||
         normalized.startsWith('8C1F64D5A');
@@ -382,9 +372,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
         final result = _matchFirmware(haystack);
         if (result != null) return result;
-      } catch (_) {
-        // عدم استجابة منفذ الإدارة لا يعني أن الجهاز غير موجود.
-      }
+      } catch (_) {}
     }
     return null;
   }
@@ -662,7 +650,7 @@ class _HomeScreenState extends State<HomeScreen> {
           backgroundColor: Colors.white,
           elevation: 0,
           title: const Text(
-            'BASEM LG',
+            'ALSAMAN', // تم التعديل هنا
             style: TextStyle(
               fontWeight: FontWeight.bold,
               letterSpacing: 1.1,
