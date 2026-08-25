@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_local_device_discovery/flutter_local_device_discovery.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -568,6 +569,14 @@ class _HomeScreenState extends State<HomeScreen> {
     return Icons.devices;
   }
 
+  // دوال فتح الروابط (فيسبوك، واتساب، الاتصال)
+  Future<void> _launchUrl(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      throw Exception('Could not launch $urlString');
+    }
+  }
+
   void _showJoinUsDialog() {
     showModalBottomSheet(
       context: context,
@@ -591,6 +600,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: TextStyle(fontSize: 16, color: Colors.grey),
                 ),
                 const SizedBox(height: 20),
+                // زر فيسبوك (استبدل الرابط أدناه برابط صفحتك الشخصية أو العامة)
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size.fromHeight(50),
@@ -598,11 +608,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  onPressed: () {},
+                  onPressed: () => _launchUrl('https://www.facebook.com/share/1CGkLEhHrL/'),
                   icon: const Icon(Icons.facebook, color: Colors.blue),
                   label: const Text('فيسبوك', style: TextStyle(fontSize: 16)),
                 ),
                 const SizedBox(height: 12),
+                // زر واتساب (يرسل رسالة مباشرة للرقم 01151386007)
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size.fromHeight(50),
@@ -610,11 +621,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  onPressed: () {},
+                  onPressed: () => _launchUrl('https://wa.me/201151386007'),
                   icon: const Icon(Icons.chat, color: Colors.green),
                   label: const Text('واتساب', style: TextStyle(fontSize: 16)),
                 ),
                 const SizedBox(height: 12),
+                // زر رقم الهاتف (يتصل مباشرة بالرقم 01151386007)
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size.fromHeight(50),
@@ -622,7 +634,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  onPressed: () {},
+                  onPressed: () => _launchUrl('tel:01151386007'),
                   icon: const Icon(Icons.phone, color: Colors.grey),
                   label: const Text('رقم الهاتف', style: TextStyle(fontSize: 16)),
                 ),
@@ -925,12 +937,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 title: const Text('حول التطبيق'),
                 onTap: () {
                   Navigator.pop(context);
-                  showAboutDialog(
-                    context: context,
-                    applicationName: 'ALSAMAN',
-                    applicationVersion: '12.0.1',
-                    applicationLegalese: 'Local Network Discovery',
-                  );
+                  _showJoinUsDialog();
                 },
               ),
             ],
@@ -1076,20 +1083,14 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
-          child: Row(
+          child: const Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.wifi, color: Colors.green, size: 18),
-              const SizedBox(width: 8),
-              const Text(
-                'الشبكة المحلية - ALSAMAN',
+              Icon(Icons.wifi, color: Colors.green, size: 18),
+              SizedBox(width: 8),
+              Text(
+                'إعدادات الشبكة',
                 style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-              ),
-              const SizedBox(width: 15),
-              TextButton(
-                onPressed: _showJoinUsDialog,
-                child: const Text('انضم إلينا',
-                    style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold)),
               ),
             ],
           ),
@@ -1147,7 +1148,7 @@ class SettingsScreen extends StatelessWidget {
               value: ThemeMode.system,
               groupValue: Theme.of(context).brightness == Brightness.dark
                   ? ThemeMode.dark
-                  : ThemeMode.light, // Simplified for illustration
+                  : ThemeMode.light,
               onChanged: (mode) {
                 if (mode != null) appState.updateSettings(themeMode: mode);
               },
