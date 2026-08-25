@@ -25,15 +25,6 @@ class BasemLgApp extends StatelessWidget {
           brightness: Brightness.light,
         ),
         scaffoldBackgroundColor: const Color(0xFFF4F6F9),
-        cardTheme: CardTheme(
-          elevation: 2,
-          shadowColor: Colors.black.withOpacity(0.05),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          color: Colors.white,
-          surfaceTintColor: Colors.white,
-        ),
         appBarTheme: const AppBarTheme(
           centerTitle: true,
           elevation: 0,
