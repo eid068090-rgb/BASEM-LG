@@ -25,18 +25,24 @@ class _BasemLgAppState extends State<BasemLgApp> {
   ThemeMode _themeMode = ThemeMode.system;
   bool _ubntDiscovery = true;
   bool _rosDiscovery = true;
+  bool _ddwrtDiscovery = true;
+  bool _realtekDiscovery = true;
   bool _keepAwake = false;
 
   void updateSettings({
     ThemeMode? themeMode,
     bool? ubntDiscovery,
     bool? rosDiscovery,
+    bool? ddwrtDiscovery,
+    bool? realtekDiscovery,
     bool? keepAwake,
   }) {
     setState(() {
       if (themeMode != null) _themeMode = themeMode;
       if (ubntDiscovery != null) _ubntDiscovery = ubntDiscovery;
       if (rosDiscovery != null) _rosDiscovery = rosDiscovery;
+      if (ddwrtDiscovery != null) _ddwrtDiscovery = ddwrtDiscovery;
+      if (realtekDiscovery != null) _realtekDiscovery = realtekDiscovery;
       if (keepAwake != null) _keepAwake = keepAwake;
     });
   }
@@ -46,12 +52,16 @@ class _BasemLgAppState extends State<BasemLgApp> {
       _themeMode = ThemeMode.system;
       _ubntDiscovery = true;
       _rosDiscovery = true;
+      _ddwrtDiscovery = true;
+      _realtekDiscovery = true;
       _keepAwake = false;
     });
   }
 
   bool get ubntDiscovery => _ubntDiscovery;
   bool get rosDiscovery => _rosDiscovery;
+  bool get ddwrtDiscovery => _ddwrtDiscovery;
+  bool get realtekDiscovery => _realtekDiscovery;
   bool get keepAwake => _keepAwake;
 
   @override
@@ -225,9 +235,14 @@ class _HomeScreenState extends State<HomeScreen> {
         _mergeLocalDevice(device);
       }
 
-      _applyRealtekDetection();
+      final appState = BasemLgApp.of(context);
+      if (appState.realtekDiscovery) {
+        _applyRealtekDetection();
+      }
       await _fingerprintKnownDevices();
-      _applyRealtekDetection();
+      if (appState.realtekDiscovery) {
+        _applyRealtekDetection();
+      }
 
       if (!mounted) return;
 
@@ -371,10 +386,16 @@ class _HomeScreenState extends State<HomeScreen> {
     final ips = _devices.keys.where(_isIpv4).toList();
     if (ips.isEmpty) return;
 
+    final appState = BasemLgApp.of(context);
+
     await Future.wait(
       ips.map((ip) async {
         final result = await _detectFirmware(ip);
         if (result == null) return;
+
+        // فلترة النتائج حسب إعدادات المستخدم
+        if (result.firmware.contains('DD-WRT') && !appState.ddwrtDiscovery) return;
+        if (result.firmware.contains('RouterOS') && !appState.rosDiscovery) return;
 
         final old = _devices[ip];
         if (old == null) return;
@@ -569,7 +590,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return Icons.devices;
   }
 
-  // دوال فتح الروابط (فيسبوك، واتساب، الاتصال)
   Future<void> _launchUrl(String urlString) async {
     final Uri url = Uri.parse(urlString);
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
@@ -600,7 +620,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: TextStyle(fontSize: 16, color: Colors.grey),
                 ),
                 const SizedBox(height: 20),
-                // زر فيسبوك (استبدل الرابط أدناه برابط صفحتك الشخصية أو العامة)
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size.fromHeight(50),
@@ -613,7 +632,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   label: const Text('فيسبوك', style: TextStyle(fontSize: 16)),
                 ),
                 const SizedBox(height: 12),
-                // زر واتساب (يرسل رسالة مباشرة للرقم 01151386007)
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size.fromHeight(50),
@@ -626,7 +644,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   label: const Text('واتساب', style: TextStyle(fontSize: 16)),
                 ),
                 const SizedBox(height: 12),
-                // زر رقم الهاتف (يتصل مباشرة بالرقم 01151386007)
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size.fromHeight(50),
@@ -1129,8 +1146,18 @@ class SettingsScreen extends StatelessWidget {
             ),
             SwitchListTile(
               title: const Text('اكتشاف أجهزة ROS'),
-              value: appState.rosDiscovery,
+              value: appstate_ros_check(appState), // أو appState.rosDiscovery
               onChanged: (val) => appState.updateSettings(rosDiscovery: val),
+            ),
+            SwitchListTile(
+              title: const Text('اكتشاف أجهزة dd-wrt'),
+              value: appState.ddwrtDiscovery,
+              onChanged: (val) => appState.updateSettings(ddwrtDiscovery: val),
+            ),
+            SwitchListTile(
+              title: const Text('اكتشاف أجهزة Realtek'),
+              value: appState.realtekDiscovery,
+              onChanged: (val) => appState.updateSettings(realtekDiscovery: val),
             ),
             const Divider(height: 30),
             const Text(
@@ -1202,4 +1229,6 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
   }
+
+  bool appState_ros_check(var appState) => appState.rosDiscovery;
 }
