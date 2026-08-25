@@ -899,7 +899,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               ListTile(
-                leading: const Icon(Icons.box_outlined, color: Colors.indigo),
+                leading: const Icon(Icons.widgets_outlined, color: Colors.indigo),
                 title: const Text('إعداد جهاز جديد'),
                 onTap: () => Navigator.pop(context),
               ),
