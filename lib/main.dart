@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_local_device_discovery/flutter_local_device_discovery.dart';
-import 'package:udp/udp.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 void main() {
@@ -202,7 +201,7 @@ class _HomeScreenState extends State<HomeScreen> {
       // 1. قراءة جدول ARP المحلي (Neighbor Table)
       await _loadNeighborTable();
 
-      // 2. إرسال طلب الاكتشاف المباشر لأجهزة UBNT عبر UDP 10001
+      // 2. إرسال طلب الاكتشاف المباشر لأجهزة UBNT عبر المنفذ 10001 (باستخدام RawDatagramSocket)
       await _scanUbntDevicesDirectly();
 
       // 3. استخدام مكتبة الاكتشاف المحلية الشاملة (mDNS, SSDP, Bonjour, UPnP)
@@ -265,44 +264,45 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _scanUbntDevicesDirectly() async {
+    RawDatagramSocket? receiver;
     try {
-      var receiver = await UDP.bind(Endpoint.any(port: Port(10001)));
-      var sender = await UDP.bind(Endpoint.any());
-      
-      List<int> data = [0x01, 0x00, 0x00, 0x00]; 
-      
-      await sender.send(
-        data,
-        Endpoint.broadcast(port: Port(10001)),
-      );
+      receiver = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      receiver.broadcastEnabled = true;
 
-      receiver.listen((datagram) {
-        if (datagram != null) {
-          final serverIp = datagram.address.address;
-          
-          if (mounted) {
-            setState(() {
-              _devices[serverIp] = BasemDevice(
-                name: 'Ubiquiti Device',
-                ip: serverIp,
-                mac: '-',
-                manufacturer: 'Ubiquiti Inc.',
-                model: 'AirMAX / UBNT',
-                type: 'Ubiquiti Network Device',
-                services: const ['UBNT-Discovery (Port 10001)'],
-                source: 'UBNT UDP Broadcast',
-                firmware: 'AirOS / UBNT',
-              );
-            });
+      final data = [0x01, 0x00, 0x00, 0x00];
+      receiver.send(data, InternetAddress('255.255.255.255'), 10001);
+
+      final subscription = receiver.listen((RawSocketEvent event) {
+        if (event == RawSocketEvent.read) {
+          final datagram = receiver?.receive();
+          if (datagram != null) {
+            final serverIp = datagram.address.address;
+
+            if (mounted) {
+              setState(() {
+                _devices[serverIp] = BasemDevice(
+                  name: 'Ubiquiti Device',
+                  ip: serverIp,
+                  mac: '-',
+                  manufacturer: 'Ubiquiti Inc.',
+                  model: 'AirMAX / UBNT',
+                  type: 'Ubiquiti Network Device',
+                  services: const ['UBNT-Discovery (Port 10001)'],
+                  source: 'UBNT UDP Broadcast',
+                  firmware: 'AirOS / UBNT',
+                );
+              });
+            }
           }
         }
       });
 
       await Future.delayed(const Duration(seconds: 3));
-      sender.close();
+      await subscription.cancel();
       receiver.close();
     } catch (e) {
       debugPrint('خطأ في فحص UBNT المباشر: $e');
+      receiver?.close();
     }
   }
 
