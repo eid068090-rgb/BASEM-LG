@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_local_device_discovery/flutter_local_device_discovery.dart';
+import 'package:udp/udp.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 void main() {
@@ -193,16 +194,21 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _scanning = true;
       _error = null;
-      _status = 'جاري فحص الشبكة المحلية...';
+      _status = 'جاري فحص الشبكة بآلية UISP والـ Broadcast...';
       _devices.clear();
     });
 
     try {
+      // 1. قراءة جدول ARP المحلي (Neighbor Table)
       await _loadNeighborTable();
 
+      // 2. إرسال طلب الاكتشاف المباشر لأجهزة UBNT عبر UDP 10001
+      await _scanUbntDevicesDirectly();
+
+      // 3. استخدام مكتبة الاكتشاف المحلية الشاملة (mDNS, SSDP, Bonjour, UPnP)
       final request = LocalDiscoveryRequest(
         mode: LocalDiscoveryMode.servicesAndDevices,
-        duration: const Duration(seconds: 10),
+        duration: const Duration(seconds: 8),
         protocols: {
           LocalDiscoveryProtocol.mdns,
           LocalDiscoveryProtocol.dnsSd,
@@ -221,25 +227,16 @@ class _HomeScreenState extends State<HomeScreen> {
         metadataSecurityPolicy: MetadataSecurityPolicy.defaultPolicy,
       );
 
-      final readiness = await _discovery.checkReadiness(request);
-
-      if (!readiness.canStart) {
-        throw StateError(
-          'متطلبات الفحص غير متوفرة: ${readiness.requirements.join(', ')}',
-        );
-      }
-
       final snapshot = await _discovery.discover(request);
 
       for (final device in snapshot.devices) {
         _mergeLocalDevice(device);
       }
 
-      final appState = BasemLgApp.of(context);
-      if (appState.realtekDiscovery) {
-        _applyRealtekDetection();
-      }
+      // 4. تطبيق الفحص الذكي وبصمات الأجهزة
       await _fingerprintKnownDevices();
+
+      final appState = BasemLgApp.of(context);
       if (appState.realtekDiscovery) {
         _applyRealtekDetection();
       }
@@ -264,6 +261,48 @@ class _HomeScreenState extends State<HomeScreen> {
           _scanning = false;
         });
       }
+    }
+  }
+
+  Future<void> _scanUbntDevicesDirectly() async {
+    try {
+      var receiver = await UDP.bind(Endpoint.any(port: Port(10001)));
+      var sender = await UDP.bind(Endpoint.any());
+      
+      List<int> data = [0x01, 0x00, 0x00, 0x00]; 
+      
+      await sender.send(
+        data,
+        Endpoint.broadcast(port: Port(10001)),
+      );
+
+      receiver.listen((datagram) {
+        if (datagram != null) {
+          final serverIp = datagram.address.address;
+          
+          if (mounted) {
+            setState(() {
+              _devices[serverIp] = BasemDevice(
+                name: 'Ubiquiti Device',
+                ip: serverIp,
+                mac: '-',
+                manufacturer: 'Ubiquiti Inc.',
+                model: 'AirMAX / UBNT',
+                type: 'Ubiquiti Network Device',
+                services: const ['UBNT-Discovery (Port 10001)'],
+                source: 'UBNT UDP Broadcast',
+                firmware: 'AirOS / UBNT',
+              );
+            });
+          }
+        }
+      });
+
+      await Future.delayed(const Duration(seconds: 3));
+      sender.close();
+      receiver.close();
+    } catch (e) {
+      debugPrint('خطأ في فحص UBNT المباشر: $e');
     }
   }
 
@@ -390,12 +429,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
     await Future.wait(
       ips.map((ip) async {
-        final result = await _detectFirmware(ip);
+        final result = await _detectFirmwareAndUbiquiti(ip);
         if (result == null) return;
 
-        // فلترة النتائج حسب إعدادات المستخدم
         if (result.firmware.contains('DD-WRT') && !appState.ddwrtDiscovery) return;
         if (result.firmware.contains('RouterOS') && !appState.rosDiscovery) return;
+        if (result.firmware.contains('Ubiquiti') && !appState.ubntDiscovery) return;
 
         final old = _devices[ip];
         if (old == null) return;
@@ -412,7 +451,7 @@ class _HomeScreenState extends State<HomeScreen> {
           model: result.model != '-' ? result.model : old.model,
           type: result.type,
           services: old.services,
-          source: 'HTTP/HTTPS Firmware Fingerprint',
+          source: 'UISP / HTTP Firmware Fingerprint',
           firmware: result.firmware,
         );
       }),
@@ -420,15 +459,15 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<_FirmwareResult?> _detectFirmware(String ip) async {
-    const ports = <int>[80, 443, 8080, 8443];
+  Future<_FirmwareResult?> _detectFirmwareAndUbiquiti(String ip) async {
+    const ports = <int>[80, 443, 8080, 8443, 10001];
 
     for (final port in ports) {
       final https = port == 443 || port == 8443;
       try {
         final client = HttpClient();
-        client.connectionTimeout = const Duration(milliseconds: 900);
-        client.idleTimeout = const Duration(milliseconds: 900);
+        client.connectionTimeout = const Duration(milliseconds: 800);
+        client.idleTimeout = const Duration(milliseconds: 800);
         if (https) {
           client.badCertificateCallback =
               (cert, host, p) => _isPrivateIpv4(host);
@@ -439,14 +478,14 @@ class _HomeScreenState extends State<HomeScreen> {
             .timeout(const Duration(seconds: 1));
         request.followRedirects = true;
         request.maxRedirects = 2;
-        request.headers.set('User-Agent', 'ALSAMAN-Network-Scanner/12.0.1');
+        request.headers.set('User-Agent', 'UISP-Mobile-Compatible/12.0.1');
 
         final response =
             await request.close().timeout(const Duration(seconds: 2));
         final bytes = <int>[];
         await for (final chunk in response) {
           bytes.addAll(chunk);
-          if (bytes.length >= 128 * 1024) break;
+          if (bytes.length >= 64 * 1024) break;
         }
         client.close(force: true);
 
@@ -458,7 +497,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
         final result = _matchFirmware(haystack);
         if (result != null) return result;
-      } catch (_) {}
+      } catch (_) {
+        if (port == 10001) {
+          return const _FirmwareResult(
+            firmware: 'Ubiquiti AirOS / UISP',
+            manufacturer: 'Ubiquiti Inc.',
+            model: 'Ubiquiti Device',
+            type: 'Ubiquiti Device',
+            name: 'Ubiquiti Device',
+          );
+        }
+      }
     }
     return null;
   }
@@ -1229,6 +1278,4 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
   }
-
-  bool appState_ros_check(var appState) => appState.rosDiscovery;
 }
