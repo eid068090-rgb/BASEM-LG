@@ -27,12 +27,7 @@ class _BasemLgAppState extends State<BasemLgApp> {
   bool _rosDiscovery = true;
   bool _ddwrtDiscovery = true;
   bool _realtekDiscovery = true;
-
-  ThemeMode get themeMode => _themeMode;
-  bool get ubntDiscovery => _ubntDiscovery;
-  bool get rosDiscovery => _rosDiscovery;
-  bool get ddwrtDiscovery => _ddwrtDiscovery;
-  bool get realtekDiscovery => _realtekDiscovery;
+  bool _keepAwake = false;
 
   void updateSettings({
     ThemeMode? themeMode,
@@ -40,6 +35,7 @@ class _BasemLgAppState extends State<BasemLgApp> {
     bool? rosDiscovery,
     bool? ddwrtDiscovery,
     bool? realtekDiscovery,
+    bool? keepAwake,
   }) {
     setState(() {
       if (themeMode != null) _themeMode = themeMode;
@@ -47,6 +43,7 @@ class _BasemLgAppState extends State<BasemLgApp> {
       if (rosDiscovery != null) _rosDiscovery = rosDiscovery;
       if (ddwrtDiscovery != null) _ddwrtDiscovery = ddwrtDiscovery;
       if (realtekDiscovery != null) _realtekDiscovery = realtekDiscovery;
+      if (keepAwake != null) _keepAwake = keepAwake;
     });
   }
 
@@ -57,8 +54,15 @@ class _BasemLgAppState extends State<BasemLgApp> {
       _rosDiscovery = true;
       _ddwrtDiscovery = true;
       _realtekDiscovery = true;
+      _keepAwake = false;
     });
   }
+
+  bool get ubntDiscovery => _ubntDiscovery;
+  bool get rosDiscovery => _rosDiscovery;
+  bool get ddwrtDiscovery => _ddwrtDiscovery;
+  bool get realtekDiscovery => _realtekDiscovery;
+  bool get keepAwake => _keepAwake;
 
   @override
   Widget build(BuildContext context) {
@@ -160,8 +164,7 @@ class _HomeScreenState extends State<HomeScreen> {
     '_ftp._tcp',
   };
 
-  final FlutterLocalDeviceDiscovery _discovery =
-      FlutterLocalDeviceDiscovery();
+  final FlutterLocalDeviceDiscovery _discovery = FlutterLocalDeviceDiscovery();
   final Map<String, BasemDevice> _devices = {};
 
   bool _scanning = false;
@@ -172,17 +175,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_scanNetwork());
+      unawaited(_scanNetwork());
     });
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
-
   Future<void> _scanNetwork() async {
-    if (_scanning || !mounted) return;
+    if (_scanning) return;
 
     if (kIsWeb) {
       setState(() {
@@ -195,20 +193,13 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _scanning = true;
       _error = null;
-      _status = 'جاري فحص الشبكة...';
+      _status = 'جاري فحص الشبكة بآلية UISP والـ Broadcast...';
       _devices.clear();
     });
 
     try {
       await _loadNeighborTable();
-      if (!mounted) return;
-
-      final appState = BasemLgApp.of(context);
-
-      if (appState.ubntDiscovery) {
-        await _scanUbntDevicesDirectly();
-      }
-      if (!mounted) return;
+      await _scanUbntDevicesDirectly();
 
       final request = LocalDiscoveryRequest(
         mode: LocalDiscoveryMode.servicesAndDevices,
@@ -216,6 +207,7 @@ class _HomeScreenState extends State<HomeScreen> {
         protocols: {
           LocalDiscoveryProtocol.mdns,
           LocalDiscoveryProtocol.dnsSd,
+          LocalDiscoveryProtocol.bonjour,
           LocalDiscoveryProtocol.ssdp,
           LocalDiscoveryProtocol.upnp,
           LocalDiscoveryProtocol.wsDiscovery,
@@ -231,83 +223,80 @@ class _HomeScreenState extends State<HomeScreen> {
       );
 
       final snapshot = await _discovery.discover(request);
-      if (!mounted) return;
 
       for (final device in snapshot.devices) {
         _mergeLocalDevice(device);
       }
 
       await _fingerprintKnownDevices();
-      if (!mounted) return;
 
+      final appState = BasemLgApp.of(context);
       if (appState.realtekDiscovery) {
         _applyRealtekDetection();
       }
+
+      if (!mounted) return;
 
       setState(() {
         _status = _devices.isEmpty
             ? 'لم يتم العثور على أجهزة'
             : 'تم العثور على ${_devices.length} جهاز';
       });
-    } catch (e, stack) {
-      debugPrint('Network scan error: $e');
-      debugPrintStack(stackTrace: stack);
-
+    } catch (e) {
       if (!mounted) return;
+
       setState(() {
-        _error = 'حدث خطأ أثناء فحص الشبكة: $e';
+        _error = e.toString();
         _status = 'تعذر إكمال الفحص';
       });
     } finally {
       if (mounted) {
-        setState(() => _scanning = false);
+        setState(() {
+          _scanning = false;
+        });
       }
     }
   }
 
   Future<void> _scanUbntDevicesDirectly() async {
     RawDatagramSocket? receiver;
-    StreamSubscription<RawSocketEvent>? subscription;
-
     try {
       receiver = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
       receiver.broadcastEnabled = true;
 
-      // UBNT discovery request. Some devices answer on UDP/10001.
-      const data = <int>[0x01, 0x00, 0x00, 0x00];
-      receiver.send(
-        data,
-        InternetAddress('255.255.255.255'),
-        10001,
-      );
+      final data = [0x01, 0x00, 0x00, 0x00];
+      receiver.send(data, InternetAddress('255.255.255.255'), 10001);
 
-      subscription = receiver.listen((event) {
-        if (event != RawSocketEvent.read) return;
+      final subscription = receiver.listen((RawSocketEvent event) {
+        if (event == RawSocketEvent.read) {
+          final datagram = receiver?.receive();
+          if (datagram != null) {
+            final serverIp = datagram.address.address;
 
-        final datagram = receiver?.receive();
-        if (datagram == null || !mounted) return;
-
-        final ip = datagram.address.address;
-        if (!_isIpv4(ip)) return;
-
-        _devices[ip] = BasemDevice(
-          name: 'Ubiquiti Device',
-          ip: ip,
-          mac: _devices[ip]?.mac ?? '-',
-          manufacturer: 'Ubiquiti Inc.',
-          model: 'AirMAX / UBNT',
-          type: 'Ubiquiti Network Device',
-          services: const ['UBNT-Discovery (UDP 10001)'],
-          source: 'UBNT UDP Broadcast',
-          firmware: 'AirOS / UBNT',
-        );
+            if (mounted) {
+              setState(() {
+                _devices[serverIp] = BasemDevice(
+                  name: 'Ubiquiti Device',
+                  ip: serverIp,
+                  mac: '-',
+                  manufacturer: 'Ubiquiti Inc.',
+                  model: 'AirMAX / UBNT',
+                  type: 'Ubiquiti Network Device',
+                  services: const ['UBNT-Discovery (Port 10001)'],
+                  source: 'UBNT UDP Broadcast',
+                  firmware: 'AirOS / UBNT',
+                );
+              });
+            }
+          }
+        }
       });
 
-      await Future<void>.delayed(const Duration(seconds: 3));
+      await Future.delayed(const Duration(seconds: 3));
+      await subscription.cancel();
+      receiver.close();
     } catch (e) {
-      debugPrint('UBNT discovery error: $e');
-    } finally {
-      await subscription?.cancel();
+      debugPrint('خطأ في فحص UBNT المباشر: $e');
       receiver?.close();
     }
   }
@@ -325,9 +314,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final existing = _devices[ip];
 
         _devices[ip] = BasemDevice(
-          name: existing?.name.isNotEmpty == true
-              ? existing!.name
-              : 'جهاز شبكة',
+          name: existing?.name.isNotEmpty == true ? existing!.name : 'جهاز شبكة',
           ip: ip,
           mac: mac.isEmpty ? '-' : mac,
           manufacturer: existing?.manufacturer ?? _vendorFromMac(mac),
@@ -338,9 +325,7 @@ class _HomeScreenState extends State<HomeScreen> {
           firmware: existing?.firmware ?? '-',
         );
       }
-    } catch (e) {
-      debugPrint('Neighbor table unavailable: $e');
-    }
+    } catch (_) {}
   }
 
   void _mergeLocalDevice(LocalDevice device) {
@@ -349,17 +334,17 @@ class _HomeScreenState extends State<HomeScreen> {
     final model = _text(device.model);
     final type = _text(device.type);
 
-    final services = <String>{};
+    final services = <String>[];
     for (final service in device.services) {
-      final serviceType = _text(service.serviceType);
-      if (serviceType.isNotEmpty) services.add(serviceType);
+      services.add(service.serviceType);
     }
 
     for (final address in device.addresses) {
-      final ip = _text(address.address);
+      final ip = address.address;
       if (!_isIpv4(ip)) continue;
 
       final old = _devices[ip];
+
       final mac = old?.mac ?? '-';
       final vendor = manufacturer.isNotEmpty
           ? manufacturer
@@ -374,13 +359,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 : (old?.name.isNotEmpty == true ? old!.name : 'جهاز شبكة')),
         ip: ip,
         mac: mac,
-        manufacturer:
-            isRealtek ? 'Realtek Semiconductor Corp.' : vendor,
+        manufacturer: isRealtek ? 'Realtek Semiconductor Corp.' : vendor,
         model: model.isNotEmpty ? model : (old?.model ?? '-'),
         type: isRealtek
             ? 'Realtek Network Device'
             : (type.isNotEmpty ? type : (old?.type ?? 'جهاز شبكة')),
-        services: {...?old?.services, ...services}.toList()..sort(),
+        services: {
+          ...?old?.services,
+          ...services,
+        }.toList(),
         source: 'Network Discovery',
         firmware: old?.firmware ?? '-',
       );
@@ -426,29 +413,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return normalized.startsWith('00E04C') ||
         normalized.startsWith('FC934E') ||
-        normalized.startsWith('8C1F64');
+        normalized.startsWith('8C1F64D5A');
   }
 
   Future<void> _fingerprintKnownDevices() async {
     final ips = _devices.keys.where(_isIpv4).toList();
-    if (ips.isEmpty || !mounted) return;
+    if (ips.isEmpty) return;
 
     final appState = BasemLgApp.of(context);
 
     await Future.wait(
       ips.map((ip) async {
         final result = await _detectFirmwareAndUbiquiti(ip);
-        if (result == null || !mounted) return;
+        if (result == null) return;
 
-        if (result.firmware.contains('DD-WRT') && !appState.ddwrtDiscovery) {
-          return;
-        }
-        if (result.firmware.contains('RouterOS') && !appState.rosDiscovery) {
-          return;
-        }
-        if (result.firmware.contains('Ubiquiti') && !appState.ubntDiscovery) {
-          return;
-        }
+        if (result.firmware.contains('DD-WRT') && !appState.ddwrtDiscovery) return;
+        if (result.firmware.contains('RouterOS') && !appState.rosDiscovery) return;
+        if (result.firmware.contains('Ubiquiti') && !appState.ubntDiscovery) return;
 
         final old = _devices[ip];
         if (old == null) return;
@@ -465,7 +446,7 @@ class _HomeScreenState extends State<HomeScreen> {
           model: result.model != '-' ? result.model : old.model,
           type: result.type,
           services: old.services,
-          source: 'HTTP Firmware Fingerprint',
+          source: 'UISP / HTTP Firmware Fingerprint',
           firmware: result.firmware,
         );
       }),
@@ -474,39 +455,34 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<_FirmwareResult?> _detectFirmwareAndUbiquiti(String ip) async {
-    const ports = <int>[80, 443, 8080, 8443];
+    const ports = <int>[80, 443, 8080, 8443, 10001];
 
     for (final port in ports) {
       final https = port == 443 || port == 8443;
-      final client = HttpClient();
-      client.connectionTimeout = const Duration(milliseconds: 800);
-      client.idleTimeout = const Duration(milliseconds: 800);
-
-      if (https) {
-        client.badCertificateCallback = (cert, host, _) {
-          return _isPrivateIpv4(host);
-        };
-      }
-
       try {
-        final request = await client
-            .getUrl(
-              Uri.parse('${https ? 'https' : 'http'}://$ip:$port/'),
-            )
-            .timeout(const Duration(seconds: 1));
+        final client = HttpClient();
+        client.connectionTimeout = const Duration(milliseconds: 800);
+        client.idleTimeout = const Duration(milliseconds: 800);
+        if (https) {
+          client.badCertificateCallback =
+              (cert, host, p) => _isPrivateIpv4(host);
+        }
 
+        final request = await client
+            .getUrl(Uri.parse('${https ? 'https' : 'http'}://$ip:$port/'))
+            .timeout(const Duration(seconds: 1));
         request.followRedirects = true;
         request.maxRedirects = 2;
-        request.headers.set('User-Agent', 'ALSAMAN/12.0.1');
+        request.headers.set('User-Agent', 'UISP-Mobile-Compatible/12.0.1');
 
         final response =
             await request.close().timeout(const Duration(seconds: 2));
-
         final bytes = <int>[];
         await for (final chunk in response) {
           bytes.addAll(chunk);
           if (bytes.length >= 64 * 1024) break;
         }
+        client.close(force: true);
 
         final body = String.fromCharCodes(bytes).toLowerCase();
         final server = (response.headers.value('server') ?? '').toLowerCase();
@@ -517,17 +493,22 @@ class _HomeScreenState extends State<HomeScreen> {
         final result = _matchFirmware(haystack);
         if (result != null) return result;
       } catch (_) {
-        // This port is simply not reachable; continue with the next one.
-      } finally {
-        client.close(force: true);
+        if (port == 10001) {
+          return const _FirmwareResult(
+            firmware: 'Ubiquiti AirOS / UISP',
+            manufacturer: 'Ubiquiti Inc.',
+            model: 'Ubiquiti Device',
+            type: 'Ubiquiti Device',
+            name: 'Ubiquiti Device',
+          );
+        }
       }
     }
-
     return null;
   }
 
   _FirmwareResult? _matchFirmware(String text) {
-    bool has(String value) => text.contains(value);
+    bool has(String s) => text.contains(s);
 
     if (has('dd-wrt')) {
       return const _FirmwareResult(
@@ -628,7 +609,9 @@ class _HomeScreenState extends State<HomeScreen> {
   IconData _iconFor(BasemDevice d) {
     final s = '${d.name} ${d.manufacturer} ${d.model} ${d.type}'.toLowerCase();
 
-    if (s.contains('realtek')) return Icons.memory;
+    if (s.contains('realtek')) {
+      return Icons.memory;
+    }
     if (s.contains('mikrotik') ||
         s.contains('router') ||
         s.contains('ubiquiti') ||
@@ -636,32 +619,25 @@ class _HomeScreenState extends State<HomeScreen> {
         s.contains('nanostation')) {
       return Icons.router;
     }
-    if (s.contains('printer') || s.contains('طابع')) return Icons.print;
-    if (s.contains('camera') || s.contains('onvif')) return Icons.videocam;
-    if (s.contains('tv') || s.contains('cast')) return Icons.tv;
+    if (s.contains('printer') || s.contains('طابع')) {
+      return Icons.print;
+    }
+    if (s.contains('camera') || s.contains('onvif')) {
+      return Icons.videocam;
+    }
+    if (s.contains('tv') || s.contains('cast')) {
+      return Icons.tv;
+    }
     if (s.contains('phone') || s.contains('android') || s.contains('iphone')) {
       return Icons.phone_android;
     }
     return Icons.devices;
   }
 
-  Future<void> _launchUrl(String value) async {
-    final uri = Uri.parse(value);
-    try {
-      final launched = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
-      if (!launched && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تعذر فتح الرابط')),
-        );
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر فتح الرابط: $e')),
-      );
+  Future<void> _launchUrl(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      throw Exception('Could not launch $urlString');
     }
   }
 
@@ -688,50 +664,46 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: TextStyle(fontSize: 16, color: Colors.grey),
                 ),
                 const SizedBox(height: 20),
-                _socialButton(
-                  icon: Icons.facebook,
-                  color: Colors.blue,
-                  text: 'فيسبوك',
-                  onPressed: () => _launchUrl(
-                    'https://www.facebook.com/share/1CGkLEhHrL/',
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(50),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
+                  onPressed: () => _launchUrl('https://www.facebook.com/share/1CGkLEhHrL/'),
+                  icon: const Icon(Icons.facebook, color: Colors.blue),
+                  label: const Text('فيسبوك', style: TextStyle(fontSize: 16)),
                 ),
                 const SizedBox(height: 12),
-                _socialButton(
-                  icon: Icons.chat,
-                  color: Colors.green,
-                  text: 'واتساب',
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(50),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                   onPressed: () => _launchUrl('https://wa.me/201151386007'),
+                  icon: const Icon(Icons.chat, color: Colors.green),
+                  label: const Text('واتساب', style: TextStyle(fontSize: 16)),
                 ),
                 const SizedBox(height: 12),
-                _socialButton(
-                  icon: Icons.phone,
-                  color: Colors.grey,
-                  text: 'رقم الهاتف',
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(50),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                   onPressed: () => _launchUrl('tel:01151386007'),
+                  icon: const Icon(Icons.phone, color: Colors.grey),
+                  label: const Text('رقم الهاتف', style: TextStyle(fontSize: 16)),
                 ),
               ],
             ),
           ),
         );
       },
-    );
-  }
-
-  Widget _socialButton({
-    required IconData icon,
-    required Color color,
-    required String text,
-    required VoidCallback onPressed,
-  }) {
-    return OutlinedButton.icon(
-      style: OutlinedButton.styleFrom(
-        minimumSize: const Size.fromHeight(50),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-      onPressed: onPressed,
-      icon: Icon(icon, color: color),
-      label: Text(text, style: const TextStyle(fontSize: 16)),
     );
   }
 
@@ -758,11 +730,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           color: Colors.indigo.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Icon(
-                          _iconFor(device),
-                          size: 30,
-                          color: Colors.indigo,
-                        ),
+                        child: Icon(_iconFor(device),
+                            size: 30, color: Colors.indigo),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
@@ -805,10 +774,8 @@ class _HomeScreenState extends State<HomeScreen> {
             width: 85,
             child: Text(
               title,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.grey,
-              ),
+              style:
+                  const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
             ),
           ),
           Expanded(
@@ -880,17 +847,13 @@ class _HomeScreenState extends State<HomeScreen> {
                           Text(
                             d.ip,
                             style: TextStyle(
-                              color: Colors.grey[700],
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                            ),
+                                color: Colors.grey[700],
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500),
                           ),
                           const SizedBox(width: 10),
-                          const Icon(
-                            Icons.fingerprint,
-                            size: 13,
-                            color: Colors.grey,
-                          ),
+                          const Icon(Icons.fingerprint,
+                              size: 13, color: Colors.grey),
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
@@ -898,9 +861,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 12,
-                              ),
+                                  color: Colors.grey[600], fontSize: 12),
                             ),
                           ),
                         ],
@@ -909,9 +870,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       if (d.firmware.isNotEmpty && d.firmware != '-')
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
+                              horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
                             color: Colors.deepOrange.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(6),
@@ -919,29 +878,23 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Text(
                             d.firmware,
                             style: const TextStyle(
-                              color: Colors.deepOrange,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                            ),
+                                color: Colors.deepOrange,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold),
                           ),
                         )
                       else if (d.manufacturer != 'غير معروف')
                         Text(
                           d.manufacturer,
                           style: const TextStyle(
-                            color: Colors.green,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
+                              color: Colors.green,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600),
                         ),
                     ],
                   ),
                 ),
-                const Icon(
-                  Icons.arrow_forward_ios,
-                  size: 16,
-                  color: Colors.grey,
-                ),
+                const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
               ],
             ),
           ),
@@ -974,9 +927,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       width: 22,
                       height: 22,
                       child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
+                          strokeWidth: 2, color: Colors.white),
                     )
                   : const Icon(Icons.refresh),
             ),
@@ -1026,10 +977,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: () => Navigator.pop(context),
               ),
               ListTile(
-                leading: const Icon(
-                  Icons.breakfast_dining_outlined,
-                  color: Colors.indigo,
-                ),
+                leading: const Icon(Icons.breakfast_dining_outlined, color: Colors.indigo),
                 title: const Text('Breed Enter'),
                 onTap: () => Navigator.pop(context),
               ),
@@ -1041,8 +989,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const SettingsScreen(),
-                    ),
+                        builder: (context) => const SettingsScreen()),
                   );
                 },
               ),
@@ -1116,9 +1063,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             if (_scanning)
               const LinearProgressIndicator(
-                minHeight: 2,
-                color: Colors.indigo,
-              ),
+                  minHeight: 2, color: Colors.indigo),
             if (_error != null)
               Container(
                 margin: const EdgeInsets.fromLTRB(14, 8, 14, 0),
@@ -1226,57 +1171,55 @@ class SettingsScreen extends StatelessWidget {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: const Text('الإعدادات')),
+        appBar: AppBar(
+          title: const Text('الإعدادات'),
+        ),
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
             const Text(
               'إعدادات الاكتشاف',
               style: TextStyle(
-                color: Colors.blue,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
+                  color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 8),
             SwitchListTile(
               title: const Text('اكتشاف أجهزة Ubnt'),
               value: appState.ubntDiscovery,
-              onChanged: (value) =>
-                  appState.updateSettings(ubntDiscovery: value),
+              onChanged: (val) => appState.updateSettings(ubntDiscovery: val),
             ),
             SwitchListTile(
               title: const Text('اكتشاف أجهزة ROS'),
               value: appState.rosDiscovery,
-              onChanged: (value) =>
-                  appState.updateSettings(rosDiscovery: value),
+              onChanged: (val) => appState.updateSettings(rosDiscovery: val),
             ),
             SwitchListTile(
               title: const Text('اكتشاف أجهزة dd-wrt'),
               value: appState.ddwrtDiscovery,
-              onChanged: (value) =>
-                  appState.updateSettings(ddwrtDiscovery: value),
+              onChanged: (val) => appState.updateSettings(ddwrtDiscovery: val),
             ),
             SwitchListTile(
               title: const Text('اكتشاف أجهزة Realtek'),
               value: appState.realtekDiscovery,
-              onChanged: (value) =>
-                  appState.updateSettings(realtekDiscovery: value),
+              onChanged: (val) => appState.updateSettings(realtekDiscovery: val),
             ),
             const Divider(height: 30),
             const Text(
-              'المظهر العام',
+              'التطبيق والمظهر العام',
               style: TextStyle(
-                color: Colors.blue,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
+                  color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 8),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Text('حدد سمة التطبيق', style: TextStyle(color: Colors.grey)),
+            ),
             RadioListTile<ThemeMode>(
               title: const Text('النظام الافتراضي'),
               value: ThemeMode.system,
-              groupValue: appState.themeMode,
+              groupValue: Theme.of(context).brightness == Brightness.dark
+                  ? ThemeMode.dark
+                  : ThemeMode.light,
               onChanged: (mode) {
                 if (mode != null) appState.updateSettings(themeMode: mode);
               },
@@ -1284,7 +1227,9 @@ class SettingsScreen extends StatelessWidget {
             RadioListTile<ThemeMode>(
               title: const Text('ضوء النهار'),
               value: ThemeMode.light,
-              groupValue: appState.themeMode,
+              groupValue: Theme.of(context).brightness == Brightness.dark
+                  ? ThemeMode.dark
+                  : ThemeMode.light,
               onChanged: (mode) {
                 if (mode != null) appState.updateSettings(themeMode: mode);
               },
@@ -1292,10 +1237,17 @@ class SettingsScreen extends StatelessWidget {
             RadioListTile<ThemeMode>(
               title: const Text('وضع الليل'),
               value: ThemeMode.dark,
-              groupValue: appState.themeMode,
+              groupValue: Theme.of(context).brightness == Brightness.dark
+                  ? ThemeMode.dark
+                  : ThemeMode.light,
               onChanged: (mode) {
                 if (mode != null) appState.updateSettings(themeMode: mode);
               },
+            ),
+            SwitchListTile(
+              title: const Text('إبقاء الشاشة نشطة أثناء تشغيل التطبيق'),
+              value: appState.keepAwake,
+              onChanged: (val) => appState.updateSettings(keepAwake: val),
             ),
             const SizedBox(height: 20),
             OutlinedButton.icon(
@@ -1307,12 +1259,12 @@ class SettingsScreen extends StatelessWidget {
               ),
               onPressed: appState.resetSettings,
               icon: const Icon(Icons.refresh),
-              label: const Text('استعادة الإعدادات الافتراضية'),
+              label: const Text('إستعادة الإعدادات الافتراضية'),
             ),
             const SizedBox(height: 20),
             const Center(
               child: Text(
-                'الإصدار : 12.0.1 - ALSAMAN',
+                'الإصدار : 12.0 - ALSAMAN',
                 style: TextStyle(color: Colors.grey),
               ),
             ),
