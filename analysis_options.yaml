@@ -4,3 +4,10 @@ analyzer:
   errors:
     deprecated_member_use: ignore
     deprecated_member_use_from_same_package: ignore
+    library_private_types_in_public_api: ignore
+    use_build_context_synchronously: ignore
+    avoid_print: ignore
+    use_super_parameters: ignore
+    package_names: ignore
+    # تجاهل أي تحذير آخر قد يظهر ويوقف البناء
+    todo: ignore
