@@ -1,0 +1,13 @@
+<application
+    android:name="${applicationName}"
+    android:icon="@mipmap/ic_launcher"
+    android:label="ALSAMAN">
+    
+    <!-- أضف هذا السطر داخل قسم application إذا لم يكن موجوداً -->
+    <meta-data
+        android:name="flutterEmbedding"
+        android:value="2" />
+
+    <activity
+        android:name=".MainActivity"
+        ...
