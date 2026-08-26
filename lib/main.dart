@@ -1146,7 +1146,7 @@ class SettingsScreen extends StatelessWidget {
             ),
             SwitchListTile(
               title: const Text('اكتشاف أجهزة ROS'),
-              value: appstate_ros_check(appState), // أو appState.rosDiscovery
+              value: appState.rosDiscovery,
               onChanged: (val) => appState.updateSettings(rosDiscovery: val),
             ),
             SwitchListTile(
