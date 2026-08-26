@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-
   workflow_dispatch:
 
 permissions:
@@ -14,96 +13,41 @@ jobs:
   build:
     name: Build ALSAMAN APK
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
-
-      # --------------------------------------------------
-      # 1. تحميل المشروع
-      # --------------------------------------------------
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-
-      # --------------------------------------------------
-      # 2. إعداد Java
-      # --------------------------------------------------
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
           cache: gradle
 
-
-      # --------------------------------------------------
-      # 3. إعداد Flutter
-      # --------------------------------------------------
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.47.1'
+          flutter-version: '3.24.5'
           channel: stable
           cache: true
 
+      - name: Flutter Doctor
+        run: flutter doctor -v
 
-      # --------------------------------------------------
-      # 4. عرض الإصدارات للتأكد
-      # --------------------------------------------------
-      - name: Flutter version
-        run: flutter --version
-
-      - name: Dart version
-        run: dart --version
-
-      - name: Java version
-        run: java -version
-
-
-      # --------------------------------------------------
-      # 5. تنظيف المشروع
-      # --------------------------------------------------
-      - name: Flutter clean
-        run: flutter clean
-
-
-      # --------------------------------------------------
-      # 6. تحميل Dependencies
-      # --------------------------------------------------
-      - name: Flutter pub get
+      - name: Get dependencies
         run: flutter pub get
 
-
-      # --------------------------------------------------
-      # 7. تحليل الكود
-      # --------------------------------------------------
-      - name: Flutter analyze
+      - name: Analyze
         run: flutter analyze
 
-
-      # --------------------------------------------------
-      # 8. بناء APK Release
-      # --------------------------------------------------
-      - name: Build APK Release
+      - name: Build APK
         run: flutter build apk --release
 
-
-      # --------------------------------------------------
-      # 9. التأكد أن APK تم إنشاؤه
-      # --------------------------------------------------
-      - name: Check APK
-        run: |
-          echo "Checking generated APK..."
-          ls -lh build/app/outputs/flutter-apk/
-          test -f build/app/outputs/flutter-apk/app-release.apk
-
-
-      # --------------------------------------------------
-      # 10. رفع APK إلى GitHub Actions
-      # --------------------------------------------------
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ALSAMAN-release-apk
+          name: ALSAMAN-APK
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
-          retention-days: 30
