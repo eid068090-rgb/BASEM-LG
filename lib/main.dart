@@ -304,10 +304,6 @@ class _HomeScreenState extends State<HomeScreen> {
         .replaceAll('-', '')
         .replaceAll('.', '');
 
-    // Current Realtek registrations used here for local identification:
-    // 00:E0:4C and FC:93:4E (MA-L), plus 8C:1F:64:D5:A (MA-S).
-    // A Realtek OUI identifies the network hardware/chipset, not necessarily
-    // the finished device brand or firmware.
     return normalized.startsWith('00E04C') ||
         normalized.startsWith('FC934E') ||
         normalized.startsWith('8C1F64D5A');
@@ -599,7 +595,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 width: 52,
                 height: 52,
                 decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(.08),
+                  // تم التحديث هنا لاستخدام withValues بدلاً من withOpacity
+                  color: Colors.blue.withValues(alpha: .08),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(_iconFor(d), color: Colors.blue, size: 30),
@@ -791,7 +788,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 margin: const EdgeInsets.fromLTRB(14, 8, 14, 0),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(.08),
+                  // تم التحديث هنا لاستخدام withValues بدلاً من withOpacity
+                  color: Colors.red.withValues(alpha: .08),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
