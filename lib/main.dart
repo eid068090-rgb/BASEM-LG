@@ -194,7 +194,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final FlutterLocalDeviceDiscovery _discovery = FlutterLocalDeviceDiscovery();
   
-  // خريطة الأجهزة مفتاحها الأساسي هو IP لمنع التداخل، مع تحديث البيانات الذكية
   final Map<String, BasemDevice> _devices = {};
 
   bool _scanning = false;
@@ -304,7 +303,6 @@ class _HomeScreenState extends State<HomeScreen> {
               socket.destroy();
 
               if (!_devices.containsKey(targetIp)) {
-                // توليد توقيع فريد ومميز لكل IP بناءً على رقم الأوكتيت الأخير لمنع تطابق الماك الوهمي
                 String hexId = i.toRadixString(16).padLeft(2, '0').toUpperCase();
                 _devices[targetIp] = BasemDevice(
                   name: 'Network Device ($targetIp)',
@@ -785,9 +783,6 @@ class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget_build(BuildContext context) => throw UnimplementedError();
-
-  @override
   Widget build(BuildContext context) {
     final appState = BasemLgApp.of(context);
 
@@ -798,63 +793,59 @@ class SettingsScreen extends StatelessWidget {
           title: const Text('الإعدادات'),
         ),
         body: ListView(
-          ProfileSection: const [],
-          body: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              const Text(
-                'إعدادات الاكتشاف',
-                style: TextStyle(
-                    color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-              const SizedBox(height: 8),
-              SwitchListTableField() // تم ضبط الودجتس أدناه بدقة
-              SwitchListTile(
-                title: const Text('اكتشاف أجهزة Ubnt'),
-                value: appState.ubntDiscovery,
-                onChanged: (val) => appState.updateSettings(ubntDiscovery: val),
-              ),
-              SwitchListTile(
-                title: const Text('اكتشاف أجهزة ROS'),
-                value: appState.rosDiscovery,
-                onChanged: (val) => appState.updateSettings(rosDiscovery: val),
-              ),
-              SwitchListTile(
-                title: const Text('اكتشاف أجهزة dd-wrt'),
-                value: appState.rosDiscovery, // تم التصحيح
-                onChanged: (val) => appState.updateSettings(ddwrtDiscovery: val),
-              ),
-              SwitchListTile(
-                title: const Text('اكتشاف أجهزة Realtek'),
-                value: appState.realtekDiscovery,
-                onChanged: (val) => appState.updateSettings(realtekDiscovery: val),
-              ),
-              const Divider(height: 30),
-              const Text(
-                'التطبيق والمظهر العام',
-                style: TextStyle(
-                    color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-              const SizedBox(height: 8),
-              SwitchListTile(
-                title: const Text('إبقاء الشاشة نشطة أثناء تشغيل التطبيق'),
-                value: appState.keepAwake,
-                onChanged: (val) => appState.updateSettings(keepAwake: val),
-              ),
-              const SizedBox(height: 20),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text(
+              'إعدادات الاكتشاف',
+              style: TextStyle(
+                  color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              title: const Text('اكتشاف أجهزة Ubnt'),
+              value: appState.ubntDiscovery,
+              onChanged: (val) => appState.updateSettings(ubntDiscovery: val),
+            ),
+            SwitchListTile(
+              title: const Text('اكتشاف أجهزة ROS'),
+              value: appState.rosDiscovery,
+              onChanged: (val) => appState.updateSettings(rosDiscovery: val),
+            ),
+            SwitchListTile(
+              title: const Text('اكتشاف أجهزة dd-wrt'),
+              value: appState.ddwrtDiscovery,
+              onChanged: (val) => appState.updateSettings(ddwrtDiscovery: val),
+            ),
+            SwitchListTile(
+              title: const Text('اكتشاف أجهزة Realtek'),
+              value: appState.realtekDiscovery,
+              onChanged: (val) => appState.updateSettings(realtekDiscovery: val),
+            ),
+            const Divider(height: 30),
+            const Text(
+              'التطبيق والمظهر العام',
+              style: TextStyle(
+                  color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              title: const Text('إبقاء الشاشة نشطة أثناء تشغيل التطبيق'),
+              value: appState.keepAwake,
+              onChanged: (val) => appState.updateSettings(keepAwake: val),
+            ),
+            const SizedBox(height: 20),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                onPressed: appState.resetSettings,
-                icon: const Icon(Icons.refresh),
-                label: const Text('استعادة الإعدادات الافتراضية'),
               ),
-            ],
-          ),
+              onPressed: appState.resetSettings,
+              icon: const Icon(Icons.refresh),
+              label: const Text('استعادة الإعدادات الافتراضية'),
+            ),
+          ],
         ),
       ),
     );
