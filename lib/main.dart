@@ -289,7 +289,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _runFastIpScan() async {
-    List<String> baseIps = ["11.10.10", "192.168.1", "192.168.0", "169.254.124"];
+    List<String> baseIps = [
+      "11.10.10",
+      "11.11.11",
+      "12.12.12",
+      "13.13.13",
+      "14.14.14",
+      "15.15.15",
+      "16.16.16",
+    ];
     List<Future> tasks = [];
 
     for (String baseIp in baseIps) {
@@ -299,23 +307,28 @@ class _HomeScreenState extends State<HomeScreen> {
         tasks.add(
           Future.delayed(Duration.zero, () async {
             try {
-              final socket = await Socket.connect(targetIp, 80, timeout: const Duration(milliseconds: 250));
+              final socket = await Socket.connect(targetIp, 80, timeout: const Duration(milliseconds: 180));
               socket.destroy();
 
               if (!_devices.containsKey(targetIp)) {
                 String hexId = i.toRadixString(16).padLeft(2, '0').toUpperCase();
-                _devices[targetIp] = BasemDevice(
-                  name: 'Network Device ($targetIp)',
-                  ip: targetIp,
-                  mac: 'B4:FB:E4:DC:CB:$hexId',
-                  manufacturer: 'Ubiquiti Inc.',
-                  model: 'AirMAX Device',
-                  type: 'Network Host',
-                  services: const ['HTTP (Port 80)'],
-                  source: 'Multi-Range Fast Scan',
-                  firmware: 'AirOS v6.x',
-                  wireless: 'system_$i',
-                );
+                
+                if (mounted) {
+                  setState(() {
+                    _devices[targetIp] = BasemDevice(
+                      name: 'Network Device ($targetIp)',
+                      ip: targetIp,
+                      mac: 'B4:FB:E4:DC:CB:$hexId',
+                      manufacturer: 'Network Host',
+                      model: 'Router / Gateway',
+                      type: 'Network Host',
+                      services: const ['HTTP (Port 80)'],
+                      source: 'Multi-Range Instant Scan',
+                      firmware: 'Embedded Linux',
+                      wireless: 'system_$i',
+                    );
+                  });
+                }
               }
             } catch (_) {}
           }),
