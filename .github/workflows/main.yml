@@ -9,7 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-name steps:
+
+    steps:
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -24,7 +25,7 @@ name steps:
           flutter create --platforms=android --project-name basem_lg .
 
       - name: Remove generated Flutter test
-          run: rm -rf test
+        run: rm -rf test
 
       - name: Add Android permissions
         run: |
