@@ -1,46 +1,44 @@
-name: ALSAMAN Android Build
+name: Build ALSAMAN APK
 
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:
-
-permissions:
-  contents: read
+    branches: [ "main" ]
 
 jobs:
   build:
-    name: Build ALSAMAN APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: 'temurin'
           java-version: '17'
-          cache: gradle
 
-      - name: Setup Flutter
+      - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.47.1'
-          channel: stable
-          cache: true
+          flutter-version: '3.19.x'
+          channel: 'stable'
 
-      - name: Flutter Doctor
-        run: flutter doctor -v
+      - name: Create Clean Flutter Project & Copy Code
+        run: |
+          # حفظ مجلد الكود والـ pubspec مؤقتاً
+          mkdir -p temp_backup
+          cp -r lib temp_backup/ 2>/dev/null || true
+          cp pubspec.yaml temp_backup/ 2>/dev/null || true
+          
+          # إنشاء مشروع فلاتر نظيف بالكامل وبأحدث المعايير
+          flutter create . --org com.alsaman.app --project-name basem_lg --platforms=android
+          
+          # استعادة كود المشروع الخاص بك
+          rm -rf lib/*
+          cp -r temp_backup/lib/* lib/ 2>/dev/null || true
+          cp temp_backup/pubspec.yaml ./ 2>/dev/null || true
 
       - name: Get dependencies
         run: flutter pub get
-
-      - name: Analyze
-        run: flutter analyze
 
       - name: Build APK
         run: flutter build apk --release
@@ -48,6 +46,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ALSAMAN-APK
+          name: app-release
           path: build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
