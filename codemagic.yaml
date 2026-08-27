@@ -1,0 +1,30 @@
+workflows:
+  basem_lg_android:
+    name: BASEM LG Android APK
+    max_build_duration: 30
+
+    environment:
+      flutter: stable
+
+    scripts:
+      - name: Prepare Android project
+        script: |
+          rm -rf android
+          flutter create --platforms=android --org com.basemlg .
+          cp android_permissions/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+
+      - name: Analyze
+        script: |
+          flutter analyze
+
+      - name: Build release APK
+        script: |
+          flutter build apk --release
+
+    artifacts:
+      - build/app/outputs/flutter-apk/app-release.apk
+      - build/app/outputs/flutter-apk/app-release.apk.sha1
