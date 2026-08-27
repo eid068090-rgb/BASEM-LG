@@ -19,17 +19,20 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.0'
+          flutter-version: '3.22.2'
           channel: 'stable'
 
-      - name: Create Clean Flutter Project & Copy Code
+      - name: Clean and Create Fresh Android Project
         run: |
           # حفظ مجلد الكود والـ pubspec مؤقتاً
           mkdir -p temp_backup
           cp -r lib temp_backup/ 2>/dev/null || true
           cp pubspec.yaml temp_backup/ 2>/dev/null || true
           
-          # إنشاء مشروع فلاتر نظيف بالكامل وبأحدث المعايير
+          # مسح مجلد أندرويد القديم بالكامل لتجنب أي تعارض
+          rm -rf android
+          
+          # إنشاء مشروع فلاتر جديد بالكامل يولد مجلد أندرويد سليم 100%
           flutter create . --org com.alsaman.app --project-name basem_lg --platforms=android
           
           # استعادة كود المشروع الخاص بك
