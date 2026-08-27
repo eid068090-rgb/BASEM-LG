@@ -193,12 +193,12 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _scanning = true;
       _error = null;
-      _status = 'جاري الفحص السريع المتوازي (Parallel Scan)...';
+      _status = 'جاري الفحص السريع المتوازي (Multi-Range Scan)...';
       _devices.clear();
     });
 
     try {
-      // 1. الفحص السريع المتوازي لعناوين الشبكة المحلية (مثال على نطاق 192.168.1 أو ما يناسبه)
+      // 1. الفحص السريع المتوازي لعدة نطاقات شبكية لضمان جلب جميع الأجهزة
       await _runFastIpScan();
 
       // 2. الفحص المتقدم المدمج (جداول الجيران + ميكانيزمات الاكتشاف)
@@ -262,42 +262,45 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// دالة الفحص المتوازي السريع لعناوين IP (لإنجاز البحث في أجزاء من الثانية)
+  /// دالة الفحص المتوازي السريع لعدة نطاقات شبكية لضمان العثور على جميع الأجهزة
   Future<void> _runFastIpScan() async {
-    String baseIp = "192.168.1"; // يمكن تعديلها حسب نطاق الشبكة لديك
+    // النطاقات التي تتواجد فيها أجهزتك عادة
+    List<String> baseIps = ["11.10.10", "192.168.1", "192.168.0", "169.254.124"];
     List<Future> tasks = [];
 
-    for (int i = 1; i <= 254; i++) {
-      String targetIp = "$baseIp.$i";
+    for (String baseIp in baseIps) {
+      for (int i = 1; i <= 254; i++) {
+        String targetIp = "$baseIp.$i";
 
-      tasks.add(
-        Future.delayed(Duration.zero, () async {
-          try {
-            // محاولة الاتصال بمنفذ ويب أو إدارة بسرعة فائقة (Timeout بـ 350ms)
-            final socket = await Socket.connect(targetIp, 80, timeout: const Duration(milliseconds: 350));
-            socket.destroy();
+        tasks.add(
+          Future.delayed(Duration.zero, () async {
+            try {
+              // محاولة الاتصال بمنفذ 80 بسرعة فائقة (Timeout بـ 300ms)
+              final socket = await Socket.connect(targetIp, 80, timeout: const Duration(milliseconds: 300));
+              socket.destroy();
 
-            if (!_devices.containsKey(targetIp)) {
-              _devices[targetIp] = BasemDevice(
-                name: 'جهاز شبكة نشط',
-                ip: targetIp,
-                mac: '-',
-                manufacturer: 'غير معروف',
-                model: '-',
-                type: 'Network Host',
-                services: const ['HTTP (Port 80)'],
-                source: 'Fast Parallel IP Scan',
-                firmware: '-',
-              );
+              if (!_devices.containsKey(targetIp)) {
+                _devices[targetIp] = BasemDevice(
+                  name: 'NanoStation / Network Host',
+                  ip: targetIp,
+                  mac: '-',
+                  manufacturer: 'Ubiquiti / Local Device',
+                  model: '-',
+                  type: 'Network Host',
+                  services: const ['HTTP (Port 80)'],
+                  source: 'Multi-Range Fast Scan',
+                  firmware: 'AirOS / Active',
+                );
+              }
+            } catch (_) {
+              // المنفذ مغلق أو لا يوجد جهاز
             }
-          } catch (_) {
-            // المنفذ مغلق أو لا يوجد جهاز مستجيب بهذا العنوان
-          }
-        }),
-      );
+          }),
+        );
+      }
     }
 
-    // تنفيذ جميع الطلبات في نفس اللحظة بالتوازي التام
+    // تنفيذ جميع طلبات الفحص للنطاقات المختلفة في نفس اللحظة بالتوازي التام
     await Future.wait(tasks);
   }
 
