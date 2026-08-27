@@ -1,9 +1,0 @@
-<resources>
-    <style name="Theme.BasemLG" parent="Theme.Material3.Light.NoActionBar">
-        <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#246BEB</item>
-        <item name="android:navigationBarColor">#FFFFFF</item>
-        <item name="android:statusBarColor">#FFFFFF</item>
-        <item name="android:windowLightStatusBar">true</item>
-    </style>
-</resources>
