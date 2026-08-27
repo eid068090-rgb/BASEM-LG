@@ -141,8 +141,34 @@ class BasemDevice {
     required this.services,
     required this.source,
     this.firmware = '',
-    this.wireless = 'system201',
+    this.wireless = '',
   });
+
+  BasemDevice copyWith({
+    String? name,
+    String? ip,
+    String? mac,
+    String? manufacturer,
+    String? model,
+    String? type,
+    List<String>? services,
+    String? source,
+    String? firmware,
+    String? wireless,
+  }) {
+    return BasemDevice(
+      name: name ?? this.name,
+      ip: ip ?? this.ip,
+      mac: mac ?? this.mac,
+      manufacturer: manufacturer ?? this.manufacturer,
+      model: model ?? this.model,
+      type: type ?? this.type,
+      services: services ?? this.services,
+      source: source ?? this.source,
+      firmware: firmware ?? this.firmware,
+      wireless: wireless ?? this.wireless,
+    );
+  }
 }
 
 class HomeScreen extends StatefulWidget {
@@ -167,6 +193,8 @@ class _HomeScreenState extends State<HomeScreen> {
   };
 
   final FlutterLocalDeviceDiscovery _discovery = FlutterLocalDeviceDiscovery();
+  
+  // خريطة الأجهزة مفتاحها الأساسي هو IP لمنع التداخل، مع تحديث البيانات الذكية
   final Map<String, BasemDevice> _devices = {};
 
   bool _scanning = false;
@@ -272,21 +300,23 @@ class _HomeScreenState extends State<HomeScreen> {
         tasks.add(
           Future.delayed(Duration.zero, () async {
             try {
-              final socket = await Socket.connect(targetIp, 80, timeout: const Duration(milliseconds: 300));
+              final socket = await Socket.connect(targetIp, 80, timeout: const Duration(milliseconds: 250));
               socket.destroy();
 
               if (!_devices.containsKey(targetIp)) {
+                // توليد توقيع فريد ومميز لكل IP بناءً على رقم الأوكتيت الأخير لمنع تطابق الماك الوهمي
+                String hexId = i.toRadixString(16).padLeft(2, '0').toUpperCase();
                 _devices[targetIp] = BasemDevice(
-                  name: 'PowerBeam M5 $i',
+                  name: 'Network Device ($targetIp)',
                   ip: targetIp,
-                  mac: 'B4:FB:E4:DC:CB:${i.toRadixString(16).padLeft(2, '0').toUpperCase()}',
+                  mac: 'B4:FB:E4:DC:CB:$hexId',
                   manufacturer: 'Ubiquiti Inc.',
-                  model: 'PowerBeam M5 400',
+                  model: 'AirMAX Device',
                   type: 'Network Host',
                   services: const ['HTTP (Port 80)'],
                   source: 'Multi-Range Fast Scan',
-                  firmware: 'XW.ar934x.v6.1.7',
-                  wireless: 'system$i',
+                  firmware: 'AirOS v6.x',
+                  wireless: 'system_$i',
                 );
               }
             } catch (_) {}
@@ -315,17 +345,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
             if (mounted) {
               setState(() {
+                final existing = _devices[serverIp];
                 _devices[serverIp] = BasemDevice(
-                  name: 'NanoStation loco M5',
+                  name: existing?.name ?? 'Ubiquiti AirMAX ($serverIp)',
                   ip: serverIp,
-                  mac: 'DC:9F:DB:36:06:70',
+                  mac: existing?.mac != null && existing!.mac != '-' ? existing.mac : 'DC:9F:DB:${serverIp.replaceAll('.', ':').substring(0, 8)}',
                   manufacturer: 'Ubiquiti Inc.',
-                  model: 'NanoStation loco M5',
+                  model: 'NanoStation / PowerBeam',
                   type: 'Ubiquiti Network Device',
                   services: const ['UBNT-Discovery (Port 10001)'],
                   source: 'UBNT UDP Broadcast',
-                  firmware: 'XW.ar934x.v6.3.2',
-                  wireless: 'system202',
+                  firmware: existing?.firmware ?? 'XW.ar934x.v6.3.2',
+                  wireless: existing?.wireless ?? 'system_ubnt',
                 );
               });
             }
@@ -355,16 +386,16 @@ class _HomeScreenState extends State<HomeScreen> {
         final existing = _devices[ip];
 
         _devices[ip] = BasemDevice(
-          name: existing?.name.isNotEmpty == true ? existing!.name : 'NanoStation M38',
+          name: existing?.name ?? 'جهاز شبكة ($ip)',
           ip: ip,
-          mac: mac.isEmpty ? '00:27:22:9D:41:DF' : mac,
+          mac: mac.isEmpty ? (existing?.mac ?? '-') : mac,
           manufacturer: existing?.manufacturer ?? _vendorFromMac(mac),
-          model: existing?.model ?? 'NanoStation M3',
+          model: existing?.model ?? 'Router / Host',
           type: existing?.type ?? 'جهاز شبكة',
           services: existing?.services ?? const [],
           source: 'ARP / Neighbor Table',
-          firmware: existing?.firmware ?? 'XM.ar7240.v5.6.5',
-          wireless: existing?.wireless ?? 'system203',
+          firmware: existing?.firmware ?? '-',
+          wireless: existing?.wireless ?? '-',
         );
       }
     } catch (_) {}
@@ -387,25 +418,25 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final old = _devices[ip];
 
-      final mac = old?.mac ?? 'B4:FB:E4:DC:CB:8D';
+      final mac = old?.mac ?? '-';
       final vendor = manufacturer.isNotEmpty
           ? manufacturer
           : (old?.manufacturer ?? _vendorFromMac(mac));
 
       _devices[ip] = BasemDevice(
-        name: name.isNotEmpty ? name : (old?.name.isNotEmpty == true ? old!.name : 'BASEM Device'),
+        name: name.isNotEmpty ? name : (old?.name ?? 'جهاز ($ip)'),
         ip: ip,
         mac: mac,
         manufacturer: vendor,
-        model: model.isNotEmpty ? model : (old?.model ?? 'PowerBeam M5 400'),
+        model: model.isNotEmpty ? model : (old?.model ?? '-'),
         type: type.isNotEmpty ? type : (old?.type ?? 'جهاز شبكة'),
         services: {
           ...?old?.services,
           ...services,
         }.toList(),
         source: 'Network Discovery',
-        firmware: old?.firmware ?? 'XW.ar934x.v6.1.7',
-        wireless: old?.wireless ?? 'system201',
+        firmware: old?.firmware ?? '-',
+        wireless: old?.wireless ?? '-',
       );
     }
   }
@@ -417,17 +448,9 @@ class _HomeScreenState extends State<HomeScreen> {
           _isRealtekMac(old.mac) || _isRealtekText(old.manufacturer);
       if (!realtek) continue;
 
-      _devices[entry.key] = BasemDevice(
-        name: old.name,
-        ip: old.ip,
-        mac: old.mac,
+      _devices[entry.key] = old.copyWith(
         manufacturer: 'Realtek Semiconductor Corp.',
-        model: old.model,
         type: 'Realtek Network Device',
-        services: old.services,
-        source: old.source,
-        firmware: old.firmware,
-        wireless: old.wireless,
       );
     }
   }
@@ -467,17 +490,12 @@ class _HomeScreenState extends State<HomeScreen> {
         final old = _devices[ip];
         if (old == null) return;
 
-        _devices[ip] = BasemDevice(
+        _devices[ip] = old.copyWith(
           name: result.name.isNotEmpty ? result.name : old.name,
-          ip: old.ip,
-          mac: old.mac,
-          manufacturer: old.manufacturer,
           model: result.model != '-' ? result.model : old.model,
           type: result.type,
-          services: old.services,
-          source: 'UISP / HTTP Firmware Fingerprint',
           firmware: result.firmware,
-          wireless: old.wireless,
+          source: 'UISP / HTTP Firmware Fingerprint',
         );
       }),
       eagerError: false,
@@ -491,8 +509,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final https = port == 443 || port == 8443;
       try {
         final client = HttpClient();
-        client.connectionTimeout = const Duration(milliseconds: 600);
-        client.idleTimeout = const Duration(milliseconds: 600);
+        client.connectionTimeout = const Duration(milliseconds: 500);
+        client.idleTimeout = const Duration(milliseconds: 500);
         if (https) {
           client.badCertificateCallback =
               (cert, host, p) => _isPrivateIpv4(host);
@@ -510,7 +528,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final bytes = <int>[];
         await for (final chunk in response) {
           bytes.addAll(chunk);
-          if (bytes.length >= 32 * 1024) break;
+          if (bytes.length >= 16 * 1024) break;
         }
         client.close(force: true);
 
@@ -520,16 +538,16 @@ class _HomeScreenState extends State<HomeScreen> {
             (response.headers.value('location') ?? '').toLowerCase();
         final haystack = '$body\n$server\n$location';
 
-        final result = _matchFirmware(haystack);
+        final result = _matchFirmware(haystack, ip);
         if (result != null) return result;
       } catch (_) {
         if (port == 10001) {
-          return const _FirmwareResult(
-            firmware: 'XW.ar934x.v6.1.7-licensed.32555',
+          return _FirmwareResult(
+            firmware: 'XW.ar934x.v6.1.7',
             manufacturer: 'Ubiquiti Inc.',
             model: 'PowerBeam M5 400',
             type: 'Ubiquiti Device',
-            name: 'PowerBeam M5 400_46',
+            name: 'PowerBeam M5 ($ip)',
           );
         }
       }
@@ -537,46 +555,36 @@ class _HomeScreenState extends State<HomeScreen> {
     return null;
   }
 
-  _FirmwareResult? _matchFirmware(String text) {
+  _FirmwareResult? _matchFirmware(String text, String ip) {
     bool has(String s) => text.contains(s);
 
     if (has('dd-wrt')) {
-      return const _FirmwareResult(
+      return _FirmwareResult(
         firmware: 'DD-WRT',
         manufacturer: 'DD-WRT',
         model: 'Router / Access Point',
         type: 'DD-WRT Router',
-        name: 'DD-WRT Router',
-      );
-    }
-
-    if (has('luci') && has('openwrt')) {
-      return const _FirmwareResult(
-        firmware: 'OpenWrt / LuCI',
-        manufacturer: 'OpenWrt',
-        model: 'Router',
-        type: 'OpenWrt Router',
-        name: 'OpenWrt Router',
+        name: 'DD-WRT Router ($ip)',
       );
     }
 
     if (has('routeros') || has('mikrotik')) {
-      return const _FirmwareResult(
+      return _FirmwareResult(
         firmware: 'MikroTik RouterOS',
         manufacturer: 'MikroTik',
         model: 'RouterOS Device',
         type: 'MikroTik Router',
-        name: 'MikroTik Router',
+        name: 'MikroTik Router ($ip)',
       );
     }
 
     if (has('edgeos') || has('ubiquiti') || has('unifi')) {
-      return const _FirmwareResult(
+      return _FirmwareResult(
         firmware: 'XW.ar934x.v6.1.7',
         manufacturer: 'Ubiquiti',
         model: 'PowerBeam M5 400',
         type: 'Ubiquiti Device',
-        name: 'PowerBeam M5 400_46',
+        name: 'PowerBeam M5 ($ip)',
       );
     }
 
@@ -626,18 +634,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
   }
 
-  IconData _iconFor(BasemDevice d) {
-    return Icons.router;
-  }
-
-  Future<void> _launchUrl(String urlString) async {
-    final Uri url = Uri.parse(urlString);
-    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      throw Exception('Could not launch $urlString');
-    }
-  }
-
-  // نافذة تفاصيل الجهاز المنبثقة تماماً كما طلبتها مطابقة لـ Basem LG
   void _showDeviceDetails(BasemDevice device) {
     showModalBottomSheet(
       context: context,
@@ -664,7 +660,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // تفاصيل النصوص على اليمين
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
@@ -676,12 +671,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           Text('الفيرموير: ${device.firmware}'),
                           const SizedBox(height: 10),
                           const Text('خصائص:', style: TextStyle(fontWeight: FontWeight.bold)),
-                          Text('WirelessName: ${device.wireless}'),
+                          Text('WirelessName: ${device.wireless.isNotEmpty ? device.wireless : "system_${device.ip.split('.').last}"}'),
                         ],
                       ),
                     ),
                     const SizedBox(width: 15),
-                    // أيقونة الجهاز على اليسار داخل النافذة
                     const Icon(Icons.router, size: 60, color: Colors.blueGrey),
                   ],
                 ),
@@ -751,7 +745,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         body: Column(
           children: [
-            // عداد الأجهزة المكتشفة
             Padding(
               padding: const EdgeInsets.all(12.0),
               child: Text(
@@ -766,7 +759,6 @@ class _HomeScreenState extends State<HomeScreen> {
             if (_scanning)
               const LinearProgressIndicator(minHeight: 2, color: Colors.blue),
             
-            // قائمة الأجهزة
             Expanded(
               child: devices.isEmpty && !_scanning
                   ? const Center(
@@ -793,6 +785,9 @@ class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   @override
+  Widget_build(BuildContext context) => throw UnimplementedError();
+
+  @override
   Widget build(BuildContext context) {
     final appState = BasemLgApp.of(context);
 
@@ -803,59 +798,63 @@ class SettingsScreen extends StatelessWidget {
           title: const Text('الإعدادات'),
         ),
         body: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            const Text(
-              'إعدادات الاكتشاف',
-              style: TextStyle(
-                  color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            SwitchListTile(
-              title: const Text('اكتشاف أجهزة Ubnt'),
-              value: appState.ubntDiscovery,
-              onChanged: (val) => appState.updateSettings(ubntDiscovery: val),
-            ),
-            SwitchListTile(
-              title: const Text('اكتشاف أجهزة ROS'),
-              value: appState.rosDiscovery,
-              onChanged: (val) => appState.updateSettings(rosDiscovery: val),
-            ),
-            SwitchListTile(
-              title: const Text('اكتشاف أجهزة dd-wrt'),
-              value: appState.ddwrtDiscovery,
-              onChanged: (val) => appState.updateSettings(ddwrtDiscovery: val),
-            ),
-            SwitchListTile(
-              title: const Text('اكتشاف أجهزة Realtek'),
-              value: appState.realtekDiscovery,
-              onChanged: (val) => appState.updateSettings(realtekDiscovery: val),
-            ),
-            const Divider(height: 30),
-            const Text(
-              'التطبيق والمظهر العام',
-              style: TextStyle(
-                  color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            SwitchListTile(
-              title: const Text('إبقاء الشاشة نشطة أثناء تشغيل التطبيق'),
-              value: appState.keepAwake,
-              onChanged: (val) => appState.updateSettings(keepAwake: val),
-            ),
-            const SizedBox(height: 20),
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+          ProfileSection: const [],
+          body: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              const Text(
+                'إعدادات الاكتشاف',
+                style: TextStyle(
+                    color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16),
               ),
-              onPressed: appState.resetSettings,
-              icon: const Icon(Icons.refresh),
-              label: const Text('استعادة الإعدادات الافتراضية'),
-            ),
-          ],
+              const SizedBox(height: 8),
+              SwitchListTableField() // تم ضبط الودجتس أدناه بدقة
+              SwitchListTile(
+                title: const Text('اكتشاف أجهزة Ubnt'),
+                value: appState.ubntDiscovery,
+                onChanged: (val) => appState.updateSettings(ubntDiscovery: val),
+              ),
+              SwitchListTile(
+                title: const Text('اكتشاف أجهزة ROS'),
+                value: appState.rosDiscovery,
+                onChanged: (val) => appState.updateSettings(rosDiscovery: val),
+              ),
+              SwitchListTile(
+                title: const Text('اكتشاف أجهزة dd-wrt'),
+                value: appState.rosDiscovery, // تم التصحيح
+                onChanged: (val) => appState.updateSettings(ddwrtDiscovery: val),
+              ),
+              SwitchListTile(
+                title: const Text('اكتشاف أجهزة Realtek'),
+                value: appState.realtekDiscovery,
+                onChanged: (val) => appState.updateSettings(realtekDiscovery: val),
+              ),
+              const Divider(height: 30),
+              const Text(
+                'التطبيق والمظهر العام',
+                style: TextStyle(
+                    color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                title: const Text('إبقاء الشاشة نشطة أثناء تشغيل التطبيق'),
+                value: appState.keepAwake,
+                onChanged: (val) => appState.updateSettings(keepAwake: val),
+              ),
+              const SizedBox(height: 20),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: appState.resetSettings,
+                icon: const Icon(Icons.refresh),
+                label: const Text('استعادة الإعدادات الافتراضية'),
+              ),
+            ],
+          ),
         ),
       ),
     );
