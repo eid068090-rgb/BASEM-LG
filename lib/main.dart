@@ -193,17 +193,21 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _scanning = true;
       _error = null;
-      _status = 'جاري فحص الشبكة بآلية UISP والـ Broadcast...';
+      _status = 'جاري الفحص السريع المتوازي (Parallel Scan)...';
       _devices.clear();
     });
 
     try {
+      // 1. الفحص السريع المتوازي لعناوين الشبكة المحلية (مثال على نطاق 192.168.1 أو ما يناسبه)
+      await _runFastIpScan();
+
+      // 2. الفحص المتقدم المدمج (جداول الجيران + ميكانيزمات الاكتشاف)
       await _loadNeighborTable();
       await _scanUbntDevicesDirectly();
 
       final request = LocalDiscoveryRequest(
         mode: LocalDiscoveryMode.servicesAndDevices,
-        duration: const Duration(seconds: 8),
+        duration: const Duration(seconds: 4),
         protocols: {
           LocalDiscoveryProtocol.mdns,
           LocalDiscoveryProtocol.dnsSd,
@@ -258,6 +262,45 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// دالة الفحص المتوازي السريع لعناوين IP (لإنجاز البحث في أجزاء من الثانية)
+  Future<void> _runFastIpScan() async {
+    String baseIp = "192.168.1"; // يمكن تعديلها حسب نطاق الشبكة لديك
+    List<Future> tasks = [];
+
+    for (int i = 1; i <= 254; i++) {
+      String targetIp = "$baseIp.$i";
+
+      tasks.add(
+        Future.delayed(Duration.zero, () async {
+          try {
+            // محاولة الاتصال بمنفذ ويب أو إدارة بسرعة فائقة (Timeout بـ 350ms)
+            final socket = await Socket.connect(targetIp, 80, timeout: const Duration(milliseconds: 350));
+            socket.destroy();
+
+            if (!_devices.containsKey(targetIp)) {
+              _devices[targetIp] = BasemDevice(
+                name: 'جهاز شبكة نشط',
+                ip: targetIp,
+                mac: '-',
+                manufacturer: 'غير معروف',
+                model: '-',
+                type: 'Network Host',
+                services: const ['HTTP (Port 80)'],
+                source: 'Fast Parallel IP Scan',
+                firmware: '-',
+              );
+            }
+          } catch (_) {
+            // المنفذ مغلق أو لا يوجد جهاز مستجيب بهذا العنوان
+          }
+        }),
+      );
+    }
+
+    // تنفيذ جميع الطلبات في نفس اللحظة بالتوازي التام
+    await Future.wait(tasks);
+  }
+
   Future<void> _scanUbntDevicesDirectly() async {
     RawDatagramSocket? receiver;
     try {
@@ -292,7 +335,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       });
 
-      await Future.delayed(const Duration(seconds: 3));
+      await Future.delayed(const Duration(seconds: 2));
       await subscription.cancel();
       receiver.close();
     } catch (e) {
@@ -461,8 +504,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final https = port == 443 || port == 8443;
       try {
         final client = HttpClient();
-        client.connectionTimeout = const Duration(milliseconds: 800);
-        client.idleTimeout = const Duration(milliseconds: 800);
+        client.connectionTimeout = const Duration(milliseconds: 600);
+        client.idleTimeout = const Duration(milliseconds: 600);
         if (https) {
           client.badCertificateCallback =
               (cert, host, p) => _isPrivateIpv4(host);
@@ -476,11 +519,11 @@ class _HomeScreenState extends State<HomeScreen> {
         request.headers.set('User-Agent', 'UISP-Mobile-Compatible/12.0.1');
 
         final response =
-            await request.close().timeout(const Duration(seconds: 2));
+            await request.close().timeout(const Duration(seconds: 1));
         final bytes = <int>[];
         await for (final chunk in response) {
           bytes.addAll(chunk);
-          if (bytes.length >= 64 * 1024) break;
+          if (bytes.length >= 32 * 1024) break;
         }
         client.close(force: true);
 
