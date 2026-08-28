@@ -1,0 +1,21 @@
+name: basem_lg
+description: BASEM LG - Arabic local network device discovery app.
+publish_to: "none"
+version: 16.0.0+17
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_local_device_discovery: ^1.1.0
+  dartssh2: ^3.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
