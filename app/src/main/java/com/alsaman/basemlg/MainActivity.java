@@ -45,11 +45,13 @@ public class MainActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         showHome();
         startDiscovery();
+        startProtocolDiscovery();
     }
 
     private TextView tv(String text, float size, int color, boolean bold) {
         TextView t = new TextView(this);
         t.setText(text); t.setTextSize(size); t.setTextColor(color);
+        t.setTextDirection(View.TEXT_DIRECTION_ANY_RTL);
         t.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         t.setPadding(8,4,8,4);
@@ -70,30 +72,32 @@ public class MainActivity extends Activity {
 
     private LinearLayout page() {
         LinearLayout p=new LinearLayout(this); p.setOrientation(LinearLayout.VERTICAL);
-        p.setBackgroundColor(Color.WHITE); p.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        p.setBackgroundColor(Color.WHITE); p.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
         return p;
     }
 
     private LinearLayout topBar(String title, boolean back, boolean menu) {
-        LinearLayout bar=new LinearLayout(this); bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(16,8,16,8); bar.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        LinearLayout bar=new LinearLayout(this);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(14,6,14,6);
+        bar.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
         if(back) {
-            TextView b=tv("→",34,gray,false);
-            b.setGravity(Gravity.CENTER);
-            b.setOnClickListener(v->showHome());
-            bar.addView(b,new LinearLayout.LayoutParams(55,64));
+            TextView b=tv("‹",38,gray,false); b.setTextDirection(View.TEXT_DIRECTION_LTR);
+            b.setGravity(Gravity.CENTER); b.setOnClickListener(v->showHome());
+            bar.addView(b,new LinearLayout.LayoutParams(54,64));
         } else {
-            TextView search=tv("⌕",42,dark,false); search.setGravity(Gravity.CENTER);
+            TextView search=tv("⌕",42,dark,false); search.setTextDirection(View.TEXT_DIRECTION_LTR); search.setGravity(Gravity.CENTER);
             search.setOnClickListener(v->showSearch());
-            bar.addView(search,new LinearLayout.LayoutParams(60,64));
+            bar.addView(search,new LinearLayout.LayoutParams(54,64));
         }
         TextView titleTv=tv(title,27,dark,true);
+        titleTv.setTextDirection(View.TEXT_DIRECTION_LTR);
         titleTv.setGravity(Gravity.CENTER);
         bar.addView(titleTv,new LinearLayout.LayoutParams(0,64,1));
         if(menu) {
-            TextView m=tv("☰",31,gray,false); m.setGravity(Gravity.CENTER);
+            TextView m=tv("☰",31,gray,false); m.setTextDirection(View.TEXT_DIRECTION_LTR); m.setGravity(Gravity.CENTER);
             m.setOnClickListener(v->showMenu());
-            bar.addView(m,new LinearLayout.LayoutParams(60,64));
+            bar.addView(m,new LinearLayout.LayoutParams(54,64));
         }
         return bar;
     }
@@ -104,7 +108,7 @@ public class MainActivity extends Activity {
         root.addView(bar); root.addView(line());
 
         LinearLayout counter=new LinearLayout(this);
-        counter.setPadding(22,14,22,8); counter.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
+        counter.setPadding(22,14,22,8); counter.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL); counter.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         TextView a=tv("الأجهزة المكتشفة : ",17,dark,false);
         countText=tv(String.valueOf(devices.size()),18,blue,true);
         counter.addView(countText,new LinearLayout.LayoutParams(-2,42));
@@ -138,14 +142,14 @@ public class MainActivity extends Activity {
 
     private void addCard(Device d) {
         LinearLayout card=new LinearLayout(this); card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL); card.setPadding(12,12,14,12);
+        card.setGravity(Gravity.CENTER_VERTICAL); card.setPadding(12,12,14,12); card.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
         card.setBackground(bg(Color.WHITE,28));
         card.setElevation(5);
         LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,125); cp.setMargins(0,7,0,7);
         card.setLayoutParams(cp);
 
         LinearLayout info=new LinearLayout(this); info.setOrientation(LinearLayout.VERTICAL);
-        info.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);
+        info.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT); info.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         String name=!d.model.isEmpty()?d.model:(!d.hostname.isEmpty()?d.hostname:(!d.board.isEmpty()?d.board:"جهاز شبكة"));
         TextView n=tv(name,19,dark,true);
         TextView ip=tv("عنوان الأيبي : "+(d.ip.isEmpty()?"غير متاح":d.ip),15,dark,false);
@@ -163,10 +167,10 @@ public class MainActivity extends Activity {
 
     private void showMenu() {
         final PopupWindow pw=new PopupWindow(this);
-        LinearLayout panel=page(); panel.setPadding(22,22,22,18);
+        LinearLayout panel=page(); panel.setPadding(18,22,18,18); panel.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         TextView close=tv("×",38,Color.LTGRAY,false); close.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL);
         close.setOnClickListener(v->pw.dismiss()); panel.addView(close,new LinearLayout.LayoutParams(-1,55));
-        TextView logo=tv("ALSAMAN",30,dark,true); logo.setGravity(Gravity.CENTER); panel.addView(logo,new LinearLayout.LayoutParams(-1,70));
+        TextView logo=tv("ALSAMAN",30,dark,true); logo.setTextDirection(View.TEXT_DIRECTION_LTR); logo.setGravity(Gravity.CENTER); panel.addView(logo,new LinearLayout.LayoutParams(-1,70));
         panel.addView(menuItem("إعداد جهاز جديد","⚙",v->{pw.dismiss();showSetup();}));
         panel.addView(menuItem("Breed Enter","▣",v->{pw.dismiss();showBreed();}));
         panel.addView(menuItem("الإعدادات","⚙",v->{pw.dismiss();showSettings();}));
@@ -176,11 +180,18 @@ public class MainActivity extends Activity {
         pw.showAtLocation(content!=null?content:getWindow().getDecorView(),Gravity.RIGHT,0,0);
     }
 
-    private TextView menuItem(String s,String ico,View.OnClickListener l) {
-        TextView t=tv(s+"                         "+ico,20,dark,false);
-        t.setPadding(10,10,10,10); t.setOnClickListener(l);
-        t.setLayoutParams(new LinearLayout.LayoutParams(-1,70));
-        return t;
+    private View menuItem(String s,String ico,View.OnClickListener l) {
+        LinearLayout row=new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        row.setPadding(8,4,8,4);
+        TextView icon=tv(ico,28,gray,false); icon.setTextDirection(View.TEXT_DIRECTION_LTR); icon.setGravity(Gravity.CENTER);
+        TextView text=tv(s,19,dark,false); text.setTextDirection(View.TEXT_DIRECTION_RTL); text.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
+        row.addView(icon,new LinearLayout.LayoutParams(58,68));
+        row.addView(text,new LinearLayout.LayoutParams(0,68,1));
+        row.setOnClickListener(l);
+        return row;
     }
 
     private void showSetup() {
@@ -284,6 +295,92 @@ public class MainActivity extends Activity {
     }
 
     // ---------------- Discovery engine ----------------
+    private void startProtocolDiscovery() {
+        pool.execute(this::discoverUbiquiti);
+        pool.execute(this::discoverMikroTik);
+    }
+
+    private void discoverUbiquiti() {
+        final int PORT=10001;
+        final byte[] probeV1=new byte[]{0x01,0x00,0x00,0x00};
+        final byte[] probeV2=new byte[]{0x02,0x08,0x00,0x00};
+        DatagramSocket sock=null;
+        try {
+            sock=new DatagramSocket(null); sock.setReuseAddress(true); sock.setBroadcast(true);
+            sock.bind(new InetSocketAddress(PORT)); sock.setSoTimeout(1200);
+            try { sock.send(new DatagramPacket(probeV1,probeV1.length,InetAddress.getByName("255.255.255.255"),PORT)); } catch(Throwable ignored) {}
+            try { sock.send(new DatagramPacket(probeV2,probeV2.length,InetAddress.getByName("255.255.255.255"),PORT)); } catch(Throwable ignored) {}
+            try { sock.send(new DatagramPacket(probeV1,probeV1.length,InetAddress.getByName("233.89.188.1"),PORT)); } catch(Throwable ignored) {}
+            long end=System.currentTimeMillis()+3500;
+            while(running && System.currentTimeMillis()<end) {
+                byte[] buf=new byte[8192]; DatagramPacket p=new DatagramPacket(buf,buf.length);
+                try { sock.receive(p); } catch(SocketTimeoutException e) { continue; }
+                Device d=parseUbiquiti(p.getData(),p.getLength(),p.getAddress());
+                if(d!=null) upsert(d);
+            }
+        } catch(Throwable ignored) {} finally { if(sock!=null) try{sock.close();}catch(Throwable ignored){} }
+    }
+
+    private Device parseUbiquiti(byte[] data,int len,InetAddress sender) {
+        if(len<4) return null;
+        int ver=data[0]&0xff, cmd=data[1]&0xff, total=((data[2]&0xff)<<8)|(data[3]&0xff);
+        if((ver==1 && cmd!=0) || (ver==2 && cmd!=6 && cmd!=9 && cmd!=11) || (ver!=1 && ver!=2)) return null;
+        if(total+4>len) return null;
+        Device d=new Device(); d.ip=sender==null?"":sender.getHostAddress(); d.port=80; d.via="UBNT";
+        int pos=4,end=4+total;
+        while(pos+3<=end) {
+            int type=data[pos]&0xff, n=((data[pos+1]&0xff)<<8)|(data[pos+2]&0xff); pos+=3;
+            if(n<0 || pos+n>end) break;
+            if(type==1 && n>=6) d.mac=formatMac(data,pos);
+            else if(type==2 && n>=10) { String m=formatMac(data,pos); if(d.mac.isEmpty()) d.mac=m; d.ip=(data[pos+6]&255)+"."+(data[pos+7]&255)+"."+(data[pos+8]&255)+"."+(data[pos+9]&255); }
+            else if(type==3) d.firmware=utf8(data,pos,n);
+            else if(type==11) d.hostname=utf8(data,pos,n);
+            else if(type==12) d.board=utf8(data,pos,n);
+            else if(type==20 || type==21) d.model=utf8(data,pos,n);
+            else if(type==22 && d.firmware.isEmpty()) d.firmware=utf8(data,pos,n);
+            pos+=n;
+        }
+        if(d.model.isEmpty()) d.model=!d.board.isEmpty()?d.board:(!d.hostname.isEmpty()?d.hostname:"Ubiquiti Device");
+        if(d.mac.isEmpty() && d.model.isEmpty()) return null;
+        return d;
+    }
+
+    private void discoverMikroTik() {
+        final int PORT=5678; DatagramSocket sock=null;
+        try {
+            sock=new DatagramSocket(null); sock.setReuseAddress(true); sock.setBroadcast(true);
+            sock.bind(new InetSocketAddress(PORT)); sock.setSoTimeout(1200);
+            byte[] probe=new byte[]{0,0,0,0};
+            try { sock.send(new DatagramPacket(probe,probe.length,InetAddress.getByName("255.255.255.255"),PORT)); } catch(Throwable ignored) {}
+            long end=System.currentTimeMillis()+3500;
+            while(running && System.currentTimeMillis()<end) {
+                byte[] buf=new byte[8192]; DatagramPacket p=new DatagramPacket(buf,buf.length);
+                try { sock.receive(p); } catch(SocketTimeoutException e) { continue; }
+                Device d=parseMikroTik(p.getData(),p.getLength(),p.getAddress()); if(d!=null) upsert(d);
+            }
+        } catch(Throwable ignored) {} finally { if(sock!=null) try{sock.close();}catch(Throwable ignored){} }
+    }
+
+    private Device parseMikroTik(byte[] data,int len,InetAddress sender) {
+        if(len<8) return null; Device d=new Device(); d.ip=sender==null?"":sender.getHostAddress(); d.port=80; d.via="MNDP";
+        int pos=4; boolean found=false;
+        while(pos+4<=len) {
+            int type=((data[pos]&255)<<8)|(data[pos+1]&255); int n=((data[pos+2]&255)<<8)|(data[pos+3]&255); pos+=4;
+            if(n<0 || pos+n>len) break;
+            if(type==1 && n>=6) {d.mac=formatMac(data,pos);found=true;}
+            else if(type==5) {d.hostname=utf8(data,pos,n);found=true;}
+            else if(type==7) d.firmware=utf8(data,pos,n);
+            else if(type==8) {d.board=utf8(data,pos,n); if(d.model.isEmpty()) d.model=utf8(data,pos,n);found=true;}
+            else if(type==12) {d.board=utf8(data,pos,n); if(d.model.isEmpty()) d.model=utf8(data,pos,n);found=true;}
+            else if(type==17 && n==4) d.ip=(data[pos]&255)+"."+(data[pos+1]&255)+"."+(data[pos+2]&255)+"."+(data[pos+3]&255);
+            pos+=n;
+        }
+        if(!found) return null; if(d.model.isEmpty()) d.model=!d.board.isEmpty()?d.board:(!d.hostname.isEmpty()?d.hostname:"MikroTik"); return d;
+    }
+
+    private String utf8(byte[] b,int off,int n){ try{return new String(b,off,n,StandardCharsets.UTF_8).replace("\\0","").trim();}catch(Throwable e){return "";} }
+    private String formatMac(byte[] b,int off){ if(off+6>b.length)return ""; StringBuilder s=new StringBuilder(); for(int i=0;i<6;i++){if(i>0)s.append(':');s.append(String.format(Locale.US,"%02X",b[off+i]&255));} return s.toString(); }
+
     private void startDiscovery() {
         running=true; acquireMulticastLock();
         pool.execute(()->{
