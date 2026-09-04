@@ -296,7 +296,8 @@ public class MainActivity extends Activity {
                     synchronized(mdns){mdns.add(j);}
                     attachType(j,"_http._tcp.local.");attachType(j,"_https._tcp.local.");attachType(j,"_ssh._tcp.local.");
                     try{j.addServiceTypeListener(new ServiceTypeListener(){
-                        public void serviceTypeAdded(ServiceEvent e){String t=e.getType();if(t!=null&&!t.startsWith("_services."))attachType(j,t);}
+                        @Override public void serviceTypeAdded(ServiceEvent e){String t=e.getType();if(t!=null&&!t.startsWith("_services."))attachType(j,t);}
+                        @Override public void subTypeForServiceTypeAdded(ServiceEvent e){String t=e.getType();if(t!=null&&!t.startsWith("_services."))attachType(j,t);}
                     });}catch(Throwable ignored){}
                     made++;
                 }catch(Throwable ignored){}
