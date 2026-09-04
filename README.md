@@ -47,3 +47,7 @@ The Android UI has been redesigned to follow the supplied BASEM-LG reference scr
 - About screen with social/contact-style buttons.
 - Device details screen.
 - Discovery engine remains automatic over mDNS/DNS-SD with HTTP fallback.
+
+
+## Discovery
+ALSAMAN v3 uses mDNS/DNS-SD plus Ubiquiti Discovery Protocol (UDP 10001) and MikroTik MNDP (UDP 5678), so Ubiquiti/MikroTik neighbors can be listed without SSH credentials.
