@@ -4,221 +4,197 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.graphics.Typeface;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
+import android.view.Window;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 public final class MainActivity extends Activity {
-    private LinearLayout list;
-    private TextView count;
-    private final Map<String, Device> devices = new LinkedHashMap<>();
-    private MdnsDiscovery mdns;
+    private LinearLayout deviceList;
+    private TextView countText;
+    private TextView statusText;
 
-    private int dp(float v) {
-        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
+    private final Map<String, Device> devices = new LinkedHashMap<>();
+    private final Handler main = new Handler(Looper.getMainLooper());
+
+    private UbntDiscovery ubnt;
+    private MdnsDiscovery mdns;
+    private HttpProbe httpProbe;
+
+    private int dp(float value) {
+        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
     }
 
-    @Override protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+    @Override
+    protected void onCreate(Bundle state) {
+        super.onCreate(state);
+        setContentView(R.layout.activity_main);
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        root.setBackgroundColor(0xFFF7F7F7);
+        deviceList = findViewById(R.id.deviceList);
+        countText = findViewById(R.id.countText);
+        statusText = findViewById(R.id.statusText);
 
-        LinearLayout bar = new LinearLayout(this);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(18), dp(10), dp(18), dp(10));
-        bar.setBackgroundColor(0xFFFFFFFF);
+        findViewById(R.id.scanButton).setOnClickListener(v -> startDiscovery());
+        findViewById(R.id.menuButton).setOnClickListener(v ->
+                Toast.makeText(this, "BASEM LG Device Finder", Toast.LENGTH_SHORT).show());
 
-        TextView search = new TextView(this);
-        search.setText("⌕");
-        search.setTextSize(38);
-        search.setGravity(Gravity.CENTER);
-        bar.addView(search, new LinearLayout.LayoutParams(dp(60), dp(56)));
-
-        TextView title = new TextView(this);
-        title.setText("BASEM LG");
-        title.setTextSize(27);
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        title.setGravity(Gravity.CENTER);
-        bar.addView(title, new LinearLayout.LayoutParams(0, dp(56), 1));
-
-        TextView menu = new TextView(this);
-        menu.setText("☰");
-        menu.setTextSize(30);
-        menu.setGravity(Gravity.CENTER);
-        bar.addView(menu, new LinearLayout.LayoutParams(dp(60), dp(56)));
-
-        root.addView(bar);
-
-        LinearLayout heading = new LinearLayout(this);
-        heading.setGravity(Gravity.CENTER_VERTICAL);
-        heading.setPadding(dp(18), dp(16), dp(18), dp(8));
-
-        TextView h = new TextView(this);
-        h.setText("الأجهزة المكتشفة :");
-        h.setTextSize(20);
-        h.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        heading.addView(h);
-
-        count = new TextView(this);
-        count.setText(" (0)");
-        count.setTextSize(20);
-        count.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        count.setTextColor(0xFF1555AA);
-        heading.addView(count);
-
-        root.addView(heading);
-
-        ScrollView scroll = new ScrollView(this);
-        list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(dp(12), 0, dp(12), dp(24));
-        scroll.addView(list);
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-
-        setContentView(root);
+        httpProbe = new HttpProbe(this::addDevice);
         startDiscovery();
     }
 
     private void startDiscovery() {
-        UbntDiscovery ubnt = new UbntDiscovery(this::addDevice);
-        ubnt.start();
+        statusText.setText(getString(R.string.scanning));
 
+        if (ubnt != null) ubnt.stop();
+        if (mdns != null) mdns.stop();
+
+        ubnt = new UbntDiscovery(this::addDevice);
         mdns = new MdnsDiscovery(this, this::addDevice);
+
+        ubnt.start();
         mdns.start();
+
+        main.postDelayed(() -> {
+            if (devices.isEmpty()) {
+                statusText.setText(getString(R.string.no_devices));
+            } else {
+                statusText.setText("تم العثور على " + devices.size() + " جهاز");
+            }
+        }, 5500);
     }
 
-    private void addDevice(Device d) {
-        String key = d.key();
+    private void addDevice(Device incoming) {
+        if (incoming == null) return;
+
+        String key = incoming.key();
+        if (key == null || key.equals("|")) return;
+
         Device old = devices.get(key);
-        if (old != null) {
-            if (old.hostname.isEmpty()) old.hostname = d.hostname;
-            if (old.ip.isEmpty()) old.ip = d.ip;
-            if (old.mac.isEmpty()) old.mac = d.mac;
-            if (old.model.isEmpty()) old.model = d.model;
-            if (old.wirelessName.isEmpty()) old.wirelessName = d.wirelessName;
-            if (old.firmware.isEmpty()) old.firmware = d.firmware;
+        if (old == null) {
+            devices.put(key, incoming);
+            old = incoming;
         } else {
-            devices.put(key, d);
+            DeviceMerger.mergeInto(old, incoming);
         }
-        rebuild();
+
+        rebuildList();
+
+        // HTTP is intentionally best-effort and only targets a device already
+        // discovered on the local LAN.
+        if ("Ubiquiti UDP/10001".equals(incoming.discoveryType) ||
+                "mDNS _http._tcp".equals(incoming.discoveryType)) {
+            httpProbe.probe(old);
+        }
     }
 
-    private void rebuild() {
-        list.removeAllViews();
-        count.setText(" (" + devices.size() + ")");
+    private void rebuildList() {
+        deviceList.removeAllViews();
+        countText.setText("(" + devices.size() + ")");
 
-        for (Device d : devices.values()) {
-            LinearLayout card = new LinearLayout(this);
-            card.setOrientation(LinearLayout.HORIZONTAL);
-            card.setGravity(Gravity.CENTER_VERTICAL);
-            card.setPadding(dp(14), dp(10), dp(14), dp(10));
-            card.setBackgroundColor(0xFFFFFFFF);
+        if (devices.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText(getString(R.string.no_devices));
+            empty.setTextSize(17);
+            empty.setGravity(Gravity.CENTER);
+            empty.setTextColor(0xFF65727E);
+            empty.setPadding(0, dp(40), 0, dp(40));
+            deviceList.addView(empty);
+            return;
+        }
 
-            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, dp(138));
-            cp.setMargins(0, dp(7), 0, dp(7));
-            list.addView(card, cp);
+        for (Device d : new ArrayList<>(devices.values())) {
+            View item = getLayoutInflater().inflate(R.layout.item_device, deviceList, false);
 
-            TextView icon = new TextView(this);
-            icon.setText("⌁");
-            icon.setTextSize(42);
-            icon.setGravity(Gravity.CENTER);
-            card.addView(icon, new LinearLayout.LayoutParams(dp(78), -1));
+            TextView name = item.findViewById(R.id.deviceName);
+            TextView model = item.findViewById(R.id.deviceModel);
+            TextView ip = item.findViewById(R.id.deviceIp);
+            TextView mac = item.findViewById(R.id.deviceMac);
 
-            LinearLayout info = new LinearLayout(this);
-            info.setOrientation(LinearLayout.VERTICAL);
-            info.setGravity(Gravity.CENTER_VERTICAL);
-            info.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+            name.setText(d.displayName());
+            model.setText("Model: " + (Device.notBlank(d.displayModel())
+                    ? d.displayModel() : "—"));
+            ip.setText("IP: " + (Device.notBlank(d.ip) ? d.ip : "—"));
+            mac.setText("MAC: " + (Device.notBlank(d.mac) ? d.mac : "—"));
 
-            TextView name = new TextView(this);
-            name.setText(d.hostname);
-            name.setTextSize(21);
-            name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-
-            TextView ip = new TextView(this);
-            ip.setText("عنوان الآي بي : " + d.ip);
-            ip.setTextSize(17);
-
-            TextView mac = new TextView(this);
-            mac.setText("عنوان الماك : " + d.mac);
-            mac.setTextSize(17);
-
-            info.addView(name);
-            info.addView(ip);
-            info.addView(mac);
-            card.addView(info, new LinearLayout.LayoutParams(0, -1, 1));
-
-            card.setOnClickListener(v -> showDetails(d));
+            item.setOnClickListener(v -> showDetails(d));
+            deviceList.addView(item);
         }
     }
 
     private void showDetails(Device d) {
         Dialog dialog = new Dialog(this);
-        dialog.getWindow();
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(22), dp(18), dp(22), dp(26));
         box.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        box.setPadding(dp(24), dp(18), dp(24), dp(28));
-        box.setBackgroundColor(0xFFFFFFFF);
+        box.setBackgroundResource(R.drawable.bg_card);
 
         TextView title = new TextView(this);
-        title.setText("تفاصيل الجهاز");
-        title.setTextSize(28);
+        title.setText(getString(R.string.details));
+        title.setTextSize(26);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        title.setPadding(0, 0, 0, dp(18));
+        title.setTextColor(0xFF17202A);
+        title.setPadding(0, 0, 0, dp(16));
         box.addView(title);
 
-        addField(box, "اسم المضيف:", d.hostname);
-        addField(box, "عنوان IP:", d.ip);
-        addField(box, "عنوان MAC:", d.mac);
-        addField(box, "الموديل:", d.displayModel());
-        addField(box, "WirelessName:", d.displayWireless());
-        addField(box, "الفيرموير:", d.firmware);
-        addField(box, "boardname:", d.boardName);
+        addField(box, getString(R.string.hostname), d.hostname);
+        addField(box, getString(R.string.ip), d.ip);
+        addField(box, getString(R.string.mac), d.mac);
+        addField(box, getString(R.string.model), d.displayModel());
+        addField(box, getString(R.string.wireless), d.displayWireless());
+        addField(box, getString(R.string.firmware), d.firmware);
+        addField(box, getString(R.string.board), d.boardName);
+        addField(box, getString(R.string.type), d.discoveryType);
+
+        if (!d.raw.isEmpty()) {
+            TextView rawTitle = new TextView(this);
+            rawTitle.setText(getString(R.string.raw));
+            rawTitle.setTextSize(18);
+            rawTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            rawTitle.setPadding(0, dp(12), 0, dp(6));
+            box.addView(rawTitle);
+
+            for (Map.Entry<String, String> e : d.raw.entrySet()) {
+                addField(box, e.getKey(), e.getValue());
+            }
+        }
 
         dialog.setContentView(box);
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setLayout(-1, -2);
-            dialog.getWindow().setGravity(Gravity.BOTTOM);
+        Window w = dialog.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawableResource(android.R.color.transparent);
+            w.setGravity(Gravity.BOTTOM);
         }
         dialog.show();
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setLayout(-1, -2);
-            dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        if (w != null) {
+            w.setLayout(-1, -2);
         }
     }
 
     private void addField(LinearLayout box, String label, String value) {
-        if (value == null || value.isEmpty()) return;
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(7), 0, dp(7));
+        if (!Device.notBlank(value)) return;
 
-        TextView l = new TextView(this);
-        l.setText(label);
-        l.setTextSize(17);
-        l.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-
-        TextView v = new TextView(this);
-        v.setText(value);
-        v.setTextSize(17);
-        v.setPadding(dp(8), 0, 0, 0);
-
-        row.addView(l);
-        row.addView(v, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView row = new TextView(this);
+        row.setText(label + ": " + value);
+        row.setTextSize(16);
+        row.setTextColor(0xFF17202A);
+        row.setPadding(0, dp(6), 0, dp(6));
         box.addView(row);
     }
 
-    @Override protected void onDestroy() {
+    @Override
+    protected void onDestroy() {
+        if (ubnt != null) ubnt.stop();
         if (mdns != null) mdns.stop();
         super.onDestroy();
     }

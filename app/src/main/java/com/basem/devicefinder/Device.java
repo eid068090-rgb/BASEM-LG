@@ -1,6 +1,7 @@
 package com.basem.devicefinder;
 
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 public final class Device {
@@ -12,20 +13,38 @@ public final class Device {
     public String firmware = "";
     public String boardName = "";
     public String firmwareType = "";
+    public String discoveryType = "";
     public final Map<String, String> raw = new LinkedHashMap<>();
 
     public String displayModel() {
-        if (!model.isEmpty()) return model;
-        if (hostname != null && hostname.matches("(?i)KT-708(?:[_-].*)?")) return "KT-708";
+        if (notBlank(model)) return model.trim();
+        String h = safe(hostname);
+        if (h.matches("(?i)KT[-_]?708(?:[-_].*)?")) return "KT-708";
+        if (notBlank(boardName)) return boardName.trim();
         return "";
     }
 
     public String displayWireless() {
-        return wirelessName == null ? "" : wirelessName;
+        return safe(wirelessName).trim();
+    }
+
+    public String displayName() {
+        if (notBlank(hostname)) return hostname.trim();
+        if (notBlank(model)) return model.trim();
+        if (notBlank(ip)) return ip.trim();
+        return "Unknown device";
     }
 
     public String key() {
-        if (mac != null && !mac.isEmpty()) return mac.toLowerCase();
-        return (ip == null ? "" : ip) + "|" + (hostname == null ? "" : hostname);
+        if (notBlank(mac)) return mac.toLowerCase(Locale.US).replace("-", ":");
+        return safe(ip) + "|" + safe(hostname);
+    }
+
+    public static String safe(String s) {
+        return s == null ? "" : s;
+    }
+
+    public static boolean notBlank(String s) {
+        return s != null && !s.trim().isEmpty();
     }
 }

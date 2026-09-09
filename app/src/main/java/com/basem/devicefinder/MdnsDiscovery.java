@@ -8,6 +8,7 @@ import android.os.Handler;
 import android.os.Looper;
 
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 public final class MdnsDiscovery {
@@ -18,8 +19,10 @@ public final class MdnsDiscovery {
     private final Context context;
     private final Listener listener;
     private final Handler main = new Handler(Looper.getMainLooper());
+
     private NsdManager nsd;
     private NsdManager.DiscoveryListener discoveryListener;
+    private android.net.wifi.WifiManager.MulticastLock multicastLock;
 
     public MdnsDiscovery(Context context, Listener listener) {
         this.context = context.getApplicationContext();
@@ -27,6 +30,9 @@ public final class MdnsDiscovery {
     }
 
     public void start() {
+        if (nsd != null) return;
+
+        multicastLock = NetworkUtils.acquireMulticastLock(context);
         nsd = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
         if (nsd == null) return;
 
@@ -39,10 +45,13 @@ public final class MdnsDiscovery {
             @Override public void onServiceFound(NsdServiceInfo serviceInfo) {
                 try {
                     nsd.resolveService(serviceInfo, new NsdManager.ResolveListener() {
-                        @Override public void onResolveFailed(NsdServiceInfo serviceInfo, int errorCode) {}
+                        @Override public void onResolveFailed(NsdServiceInfo info, int errorCode) {}
+
                         @Override public void onServiceResolved(NsdServiceInfo info) {
                             Device d = fromService(info);
-                            if (d != null) main.post(() -> listener.onDevice(d));
+                            if (d != null) {
+                                main.post(() -> listener.onDevice(d));
+                            }
                         }
                     });
                 } catch (Exception ignored) {}
@@ -51,55 +60,77 @@ public final class MdnsDiscovery {
             @Override public void onServiceLost(NsdServiceInfo serviceInfo) {}
         };
 
-        // The analyzed APK listens for HTTP services via mDNS/JmDNS.
         try {
-            nsd.discoverServices("_http._tcp.", NsdManager.PROTOCOL_DNS_SD, discoveryListener);
+            nsd.discoverServices("_http._tcp.", NsdManager.PROTOCOL_DNS_SD,
+                    discoveryListener);
         } catch (Exception ignored) {}
     }
 
     public void stop() {
         if (nsd != null && discoveryListener != null) {
-            try { nsd.stopServiceDiscovery(discoveryListener); } catch (Exception ignored) {}
+            try {
+                nsd.stopServiceDiscovery(discoveryListener);
+            } catch (Exception ignored) {}
+        }
+        discoveryListener = null;
+        nsd = null;
+
+        if (multicastLock != null) {
+            try {
+                if (multicastLock.isHeld()) multicastLock.release();
+            } catch (Exception ignored) {}
+            multicastLock = null;
         }
     }
 
     private Device fromService(NsdServiceInfo info) {
         Device d = new Device();
         d.hostname = safe(info.getServiceName());
+        d.discoveryType = "mDNS _http._tcp";
 
         InetAddress addr = info.getHost();
-        if (addr != null) d.ip = addr.getHostAddress();
+        if (addr != null) d.ip = safe(addr.getHostAddress());
 
         if (Build.VERSION.SDK_INT >= 21) {
-            Map<String, byte[]> a = info.getAttributes();
-            if (a != null) {
-                for (Map.Entry<String, byte[]> e : a.entrySet()) {
-                    String key = e.getKey();
-                    String val = e.getValue() == null ? "" : new String(e.getValue()).trim();
-                    d.raw.put(key, val);
+            Map<String, byte[]> attrs = info.getAttributes();
+            if (attrs != null) {
+                for (Map.Entry<String, byte[]> e : attrs.entrySet()) {
+                    String key = safe(e.getKey());
+                    String value = e.getValue() == null
+                            ? ""
+                            : new String(e.getValue(), StandardCharsets.UTF_8).trim();
 
-                    if (key.equalsIgnoreCase("hostname")) d.hostname = val;
-                    else if (key.equalsIgnoreCase("mac")) d.mac = val;
-                    else if (key.equalsIgnoreCase("model")) d.model = val;
-                    else if (key.equalsIgnoreCase("boardname")) d.boardName = val;
-                    else if (key.equalsIgnoreCase("FIRMWARE_VERNAME")) d.firmware = val;
-                    else if (key.equalsIgnoreCase("DISTRIB_ID")) d.firmwareType = val;
-                    else if (key.equalsIgnoreCase("ssid") ||
-                             key.equalsIgnoreCase("essid") ||
-                             key.equalsIgnoreCase("WirelessName") ||
-                             key.equalsIgnoreCase("wirelessName")) {
-                        d.wirelessName = val;
+                    d.raw.put(key, value);
+
+                    String k = key.toLowerCase();
+                    if (k.equals("hostname")) d.hostname = value;
+                    else if (k.equals("mac")) d.mac = value;
+                    else if (k.equals("model")) d.model = value;
+                    else if (k.equals("boardname")) d.boardName = value;
+                    else if (k.equals("firmware_vername")) d.firmware = value;
+                    else if (k.equals("firmware")) d.firmware = value;
+                    else if (k.equals("distrib_id")) d.firmwareType = value;
+                    else if (k.equals("ssid") ||
+                            k.equals("essid") ||
+                            k.equals("wirelessname") ||
+                            k.equals("wireless_name")) {
+                        d.wirelessName = value;
                     }
                 }
             }
         }
 
-        // KT708 fallback: the existing app receives KT-708_2020 as hostname.
-        if (d.model.isEmpty() && d.hostname.matches("(?i)KT-708(?:[_-].*)?")) {
+        if (!Device.notBlank(d.model) &&
+                safe(d.hostname).matches("(?i)KT[-_]?708(?:[-_].*)?")) {
             d.model = "KT-708";
         }
 
-        if (d.hostname.isEmpty() && d.ip.isEmpty() && d.mac.isEmpty()) return null;
+        if (!Device.notBlank(d.hostname) &&
+                !Device.notBlank(d.ip) &&
+                !Device.notBlank(d.mac)) {
+            return null;
+        }
+
         return d;
     }
 
