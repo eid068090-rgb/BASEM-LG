@@ -1,29 +1,93 @@
 # BasemDeviceFinder
 
-مشروع Android مستقل يعيد بناء وظيفة اكتشاف الأجهزة الظاهرة في BASEM LG، مع إضافة معالجة خاصة لـ KT-708.
+Android app for discovering LAN devices using the same *public discovery mechanisms* identified during analysis of the supplied BASEM-LG APK:
 
-## ما تم تنفيذه
+- Ubiquiti UDP discovery on port `10001`
+- mDNS / DNS-SD `_http._tcp.`
+- Ubiquiti TLV parsing for hostname, MAC/IP, firmware, ESSID and model
+- KT-708 hostname fallback (`KT-708_2020` -> `KT-708`)
+- Optional HTTP metadata probe for devices that expose useful information on port 80
+- RTL Arabic interface with device details
 
-- Ubiquiti Discovery عبر UDP/10001.
-- TLV parsing للحقول:
-  - 0x01 MAC
-  - 0x02 MAC + IPv4
-  - 0x03 Firmware
-  - 0x0B Hostname/RadioName
-  - 0x0D ESSID/WirelessName
-  - 0x14 Model
-- mDNS/NSD لخدمات `_http._tcp.`.
-- قراءة TXT attributes: hostname/mac/model/boardname/firmware وغيرها.
-- fallback:
-  - `KT-708_2020` => `Model = KT-708`
-- واجهة عربية RTL وقائمة أجهزة وصفحة تفاصيل.
+## Important
 
-## ملاحظة عن WirelessName في KT-708
+This is an independent clean implementation. It does **not** contain proprietary APK binaries, signatures, or copied assets.
 
-إذا كان KT-708 لا يعلن SSID داخل TXT records، فلن يكون بالإمكان استخراج WirelessName من mDNS وحده.
-المشروع يحتفظ بمكان واضح لإضافة مصدر آخر لاحقًا (HTTP/SSH/واجهة الجهاز) دون تغيير شاشة التفاصيل.
+The original APK analysis showed that:
+- `Discoverer2` uses UDP/10001 and mDNS.
+- mDNS reads TXT fields such as `hostname`, `mac`, `model`, `boardname`, `DISTRIB_*`, and firmware fields.
+- The original mDNS path does not itself extract `WirelessName`.
+- Therefore the app tries additional fields (`ssid`, `essid`, `WirelessName`, `wirelessName`) and an optional HTTP metadata probe.
 
-## البناء
+## Open in Android Studio
 
-افتح المشروع في Android Studio ثم Sync وBuild APK.
-هذا المجلد لا يتضمن Android SDK نفسه.
+1. Extract the ZIP.
+2. Open the extracted folder in Android Studio.
+3. Let Android Studio install/sync the Android Gradle Plugin and SDK if prompted.
+4. Build > Make Project.
+5. Run on an Android phone connected to the same LAN as the target devices.
+
+Recommended:
+- Android Studio Ladybug or newer
+- JDK 17
+- Android SDK 35
+
+## Network permissions
+
+The app requests:
+- `INTERNET`
+- `ACCESS_NETWORK_STATE`
+- `ACCESS_WIFI_STATE`
+- `CHANGE_WIFI_MULTICAST_STATE`
+
+On some Android versions, nearby-device/network discovery behavior can also depend on the device's location / nearby devices settings.
+
+## Discovery behavior
+
+### Ubiquiti
+The scanner sends both common discovery request variants:
+- `01 00 01`
+- `01 00 00 00`
+
+It listens on UDP port `10001` and parses several TLV layouts defensively.
+
+### mDNS
+Android `NsdManager` discovers:
+- `_http._tcp.`
+
+TXT keys are normalized case-insensitively.
+
+### KT-708
+If a device reports:
+- `KT-708_2020`
+- `KT-708-xxxx`
+
+and no model is supplied, the UI reports:
+- `KT-708`
+
+Wireless Name is only shown when the device actually exposes it through discovery TXT/TLV or HTTP content. The app does not invent an SSID.
+
+## Project layout
+
+```text
+BasemDeviceFinder/
+├── app/
+│   ├── build.gradle
+│   └── src/main/
+│       ├── AndroidManifest.xml
+│       ├── java/com/basem/devicefinder/
+│       │   ├── MainActivity.java
+│       │   ├── Device.java
+│       │   ├── DeviceMerger.java
+│       │   ├── UbntDiscovery.java
+│       │   ├── MdnsDiscovery.java
+│       │   ├── HttpProbe.java
+│       │   └── NetworkUtils.java
+│       └── res/
+│           ├── drawable/
+│           ├── layout/
+│           └── values/
+├── build.gradle
+├── settings.gradle
+└── gradle.properties
+```
