@@ -91,3 +91,27 @@ BasemDeviceFinder/
 ├── settings.gradle
 └── gradle.properties
 ```
+
+
+## GitHub Actions
+
+The repository includes `.github/workflows/main.yml`.
+Every push to `main`, pull request, or manual workflow run builds the debug APK and uploads it as a GitHub Actions artifact named `BasemDeviceFinder-debug`.
+
+## About `main.dart`
+
+This project is **native Android Java**, not Flutter. Therefore `main.dart` is intentionally not present and is not required. The Android entry point is:
+
+`app/src/main/java/com/basem/devicefinder/MainActivity.java`
+
+If you specifically want a Flutter project containing `lib/main.dart`, that is a different project structure and would require converting the UI/network layer to Flutter/Dart.
+
+## main.yml location
+
+For GitHub Actions, the active workflow is:
+
+```text
+.github/workflows/main.yml
+```
+
+A visible copy named `main.yml` is also included in the project root because some Android/file-manager apps hide folders beginning with a dot. **Do not move the workflow out of `.github/workflows/`** if you want GitHub Actions to run it.

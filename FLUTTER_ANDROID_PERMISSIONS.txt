@@ -1,0 +1,9 @@
+For a Flutter Android build, add these permissions to:
+android/app/src/main/AndroidManifest.xml
+
+<uses-permission android:name="android.permission.INTERNET"/>
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+<uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+<uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
+
+The supplied native Android project remains separate; main.dart is a Flutter entry point.
