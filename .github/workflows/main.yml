@@ -71,18 +71,48 @@ jobs:
           cat android/gradle.properties
           echo "====================================="
 
-      - name: Clean Flutter build
+      - name: Clean Flutter
         run: flutter clean
 
       - name: Get packages again
         run: flutter pub get
 
+      - name: Reapply Gradle memory settings
+        run: |
+          cat > android/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx6G -XX:MaxMetaspaceSize=1G -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.enableJetifier=true
+          EOF
+
       - name: Build debug APK
-        run: flutter build apk --debug
+        run: |
+          flutter build apk --debug --android-skip-build-dependency-validation --verbose
+
+      - name: Find generated APK
+        if: always()
+        run: |
+          echo "===== Searching for APK files ====="
+          find . -type f -name "*.apk" -print
+          echo "==================================="
+
+      - name: Show Flutter build directory
+        if: always()
+        run: |
+          echo "===== build/app/outputs ====="
+          if [ -d "build/app/outputs" ]; then
+            find build/app/outputs -maxdepth 5 -type f -print
+          else
+            echo "build/app/outputs does not exist"
+          fi
+          echo "==================================="
 
       - name: Upload APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: BasemDeviceFinder-debug
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          path: |
+            build/**/*.apk
+            **/outputs/**/*.apk
           if-no-files-found: error
