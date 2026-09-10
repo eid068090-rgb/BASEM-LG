@@ -12,18 +12,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. تحميل المشروع
+      # Checkout
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. Java 17
+      # Java 17
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      # 3. Flutter 3.47.1
+      # Flutter 3.47.1
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -31,33 +31,59 @@ jobs:
           flutter-version: "3.47.1"
           cache: true
 
-      # 4. معلومات Flutter
+      # Install Gradle 8.14
+      - name: Setup Gradle 8.14
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14"
+
+      # Check versions
+      - name: Check toolchain
+        run: |
+          echo "===== Java ====="
+          java -version
+
+          echo "===== Flutter ====="
+          flutter --version
+
+          echo "===== Gradle ====="
+          gradle --version
+
+      # Flutter doctor
       - name: Flutter doctor
         run: flutter doctor -v
 
-      # 5. تحميل Packages
+      # Packages
       - name: Get packages
         run: flutter pub get
 
-      # 6. فحص الكود
+      # Analyze
       - name: Analyze
         run: flutter analyze
 
-      # 7. إعطاء Gradle Wrapper صلاحية التنفيذ
+      # Make wrapper executable
       - name: Make Gradle Wrapper executable
-        working-directory: android
-        run: chmod +x gradlew
+        run: chmod +x android/gradlew
 
-      # 8. التأكد من إصدار Gradle
+      # IMPORTANT:
+      # Force Gradle 8.14 instead of any Gradle 9.x on the runner.
+      - name: Force Gradle 8.14
+        run: |
+          mkdir -p "$HOME/gradle-wrapper"
+          ln -sf "$(which gradle)" "$HOME/gradle-wrapper/gradle"
+          echo "$HOME/gradle-wrapper" >> "$GITHUB_PATH"
+
+      # Verify again
       - name: Verify Gradle
-        working-directory: android
-        run: ./gradlew --version
+        run: |
+          which gradle
+          gradle --version
 
-      # 9. بناء APK Debug
+      # Build APK
       - name: Build debug APK
         run: flutter build apk --debug
 
-      # 10. رفع APK
+      # Upload APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
