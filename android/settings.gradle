@@ -3,7 +3,9 @@ pluginManagement {
         def properties = new Properties()
         file("local.properties").withInputStream { properties.load(it) }
         def flutterSdkPath = properties.getProperty("flutter.sdk")
-        assert flutterSdkPath != null
+
+        assert flutterSdkPath != null : "flutter.sdk not set in local.properties"
+
         return flutterSdkPath
     }()
 
@@ -25,11 +27,21 @@ plugins {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
 
+    def storageUrl = System.getenv("FLUTTER_STORAGE_BASE_URL")
+    if (storageUrl == null || storageUrl.trim().isEmpty()) {
+        storageUrl = "https://storage.googleapis.com"
+    }
+
     repositories {
         google()
         mavenCentral()
+
+        maven {
+            url = uri("${storageUrl}/download.flutter.io")
+        }
     }
 }
 
 rootProject.name = "BasemDeviceFinder"
+
 include ":app"
