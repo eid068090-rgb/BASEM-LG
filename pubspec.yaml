@@ -1,19 +1,19 @@
 name: basem_device_finder
-description: BASEM LG LAN device discovery for Ubiquiti and KT-708 devices.
-publish_to: "none"
+description: Local-network device discovery using Ubiquiti UDP/10001 and mDNS, with KT-708 support.
+publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.4.0 <4.0.0"
+  sdk: '>=3.5.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
+  cupertino_icons: ^1.0.8
+  multicast_dns: ^0.3.3
 
 dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  flutter_lints: ^4.0.0
+  flutter_lints: ^5.0.0
 
 flutter:
   uses-material-design: true
