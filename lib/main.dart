@@ -1,501 +1,512 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:multicast_dns/multicast_dns.dart';
 
-void main() => runApp(const BasemApp());
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const BasemDeviceFinderApp());
+}
 
-class Device {
-  String hostname = '';
-  String ip = '';
-  String mac = '';
-  String model = '';
-  String wirelessName = '';
-  String firmware = '';
-  String boardName = '';
-  String discoveryType = '';
-  final Map<String, String> raw = {};
+class BasemDeviceFinderApp extends StatelessWidget {
+  const BasemDeviceFinderApp({super.key});
 
-  String get displayModel {
-    if (model.trim().isNotEmpty) return model.trim();
-    if (RegExp(r'^KT[-_]?708(?:[-_].*)?$', caseSensitive: false)
-        .hasMatch(hostname.trim())) return 'KT-708';
-    if (boardName.trim().isNotEmpty) return boardName.trim();
-    return '';
-  }
-
-  String get displayName {
-    if (hostname.trim().isNotEmpty) return hostname.trim();
-    if (displayModel.isNotEmpty) return displayModel;
-    if (ip.trim().isNotEmpty) return ip;
-    return 'Unknown device';
-  }
-
-  String get key {
-    if (mac.trim().isNotEmpty) {
-      return mac.toLowerCase().replaceAll('-', ':');
-    }
-    return '$ip|$hostname';
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Basem Device Finder',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+        useMaterial3: true,
+      ),
+      home: const DiscoveryPage(),
+    );
   }
 }
 
-class BasemApp extends StatelessWidget {
-  const BasemApp({super.key});
+class NetworkDevice {
+  NetworkDevice({
+    required this.source,
+    this.ip,
+    this.mac,
+    this.model,
+    this.wirelessName,
+    this.hostname,
+    this.product,
+    this.firmware,
+    this.serviceType,
+    this.serviceName,
+    this.txt,
+  });
 
-  @override
-  Widget build(BuildContext context) => MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'BASEM LG',
-        theme: ThemeData(
-          useMaterial3: true,
-          colorSchemeSeed: Colors.blue,
-          scaffoldBackgroundColor: const Color(0xfff5f6f8),
-        ),
-        home: const FinderPage(),
-      );
+  final String source;
+  final String? ip;
+  final String? mac;
+  final String? model;
+  final String? wirelessName;
+  final String? hostname;
+  final String? product;
+  final String? firmware;
+  final String? serviceType;
+  final String? serviceName;
+  final Map<String, String>? txt;
+
+  String get identity => [mac, ip, serviceName, hostname, model]
+      .where((v) => v != null && v!.trim().isNotEmpty)
+      .join('|')
+      .toLowerCase();
+
+  String get title => model?.trim().isNotEmpty == true
+      ? model!.trim()
+      : product?.trim().isNotEmpty == true
+          ? product!.trim()
+          : hostname?.trim().isNotEmpty == true
+              ? hostname!.trim()
+              : serviceName?.trim().isNotEmpty == true
+                  ? serviceName!.trim()
+                  : 'Network device';
 }
 
-class FinderPage extends StatefulWidget {
-  const FinderPage({super.key});
+class DiscoveryPage extends StatefulWidget {
+  const DiscoveryPage({super.key});
 
   @override
-  State<FinderPage> createState() => _FinderPageState();
+  State<DiscoveryPage> createState() => _DiscoveryPageState();
 }
 
-class _FinderPageState extends State<FinderPage> {
-  final Map<String, Device> devices = {};
-  RawDatagramSocket? ubntSocket;
-  RawDatagramSocket? mdnsSocket;
-  StreamSubscription<RawSocketEvent>? ubntSub;
-  StreamSubscription<RawSocketEvent>? mdnsSub;
-  Timer? timer;
-  bool scanning = false;
-  String status = 'اضغط بحث لبدء اكتشاف الأجهزة';
+class _DiscoveryPageState extends State<DiscoveryPage> {
+  final List<NetworkDevice> _devices = [];
+  bool _scanning = false;
+  String _status = 'Ready to scan the local network';
+  DateTime? _lastScan;
+  int _packetCount = 0;
 
-  @override
-  void initState() {
-    super.initState();
-    scan();
-  }
-
-  Future<void> scan() async {
-    await stopScan();
-
+  Future<void> _scan() async {
+    if (_scanning) return;
     setState(() {
-      scanning = true;
-      status = 'جاري البحث عن الأجهزة...';
-      devices.clear();
+      _scanning = true;
+      _devices.clear();
+      _packetCount = 0;
+      _status = 'Scanning UDP/10001 and mDNS…';
+      _lastScan = DateTime.now();
     });
 
-    await _startUbnt();
-    await _startMdns();
+    final results = <NetworkDevice>[];
+    final seen = <String>{};
 
-    timer = Timer(const Duration(seconds: 7), () {
-      if (!mounted) return;
-      setState(() {
-        scanning = false;
-        status = devices.isEmpty
-            ? 'لم يتم العثور على أجهزة'
-            : 'تم العثور على ${devices.length} جهاز';
-      });
+    void addDevice(NetworkDevice device) {
+      final key = device.identity.isEmpty
+          ? '${device.ip}|${device.model}|${device.wirelessName}|${device.source}'
+          : device.identity;
+      if (seen.add(key)) {
+        results.add(device);
+        if (mounted) setState(() => _devices.add(device));
+      }
+    }
+
+    await Future.wait([
+      _scanUbiquiti(addDevice),
+      _scanMdns(addDevice),
+    ]);
+
+    if (!mounted) return;
+    setState(() {
+      _scanning = false;
+      _status = _devices.isEmpty
+          ? 'No devices found. Make sure the phone is on Wi‑Fi and the device is on the same LAN.'
+          : 'Found ${_devices.length} device${_devices.length == 1 ? '' : 's'}';
     });
   }
 
-  Future<void> _startUbnt() async {
+  Future<void> _scanUbiquiti(void Function(NetworkDevice) add) async {
+    RawDatagramSocket? socket;
     try {
-      ubntSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
-      ubntSocket!.broadcastEnabled = true;
-      ubntSub = ubntSocket!.listen((event) {
-        if (event != RawSocketEvent.read) return;
-        final p = ubntSocket!.receive();
-        if (p == null) return;
-        final d = _parseUbnt(p.data, p.address.address);
-        if (d != null) _merge(d);
+      socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
+          reuseAddress: true, reusePort: false);
+      socket.broadcastEnabled = true;
+      final requestV1 = Uint8List.fromList([0x01, 0x00, 0x00, 0x00]);
+      final requestV2 = Uint8List.fromList([0x02, 0x08, 0x00, 0x00]);
+      final broadcast = InternetAddress('255.255.255.255');
+      final ubntMulticast = InternetAddress('233.89.188.1');
+
+      for (final request in [requestV1, requestV2]) {
+        socket.send(request, broadcast, 10001);
+        socket.send(request, ubntMulticast, 10001);
+      }
+
+      final done = Completer<void>();
+      late StreamSubscription<RawSocketEvent> sub;
+      final timer = Timer(const Duration(seconds: 5), () {
+        if (!done.isCompleted) done.complete();
       });
 
-      final b = InternetAddress('255.255.255.255');
-      ubntSocket!.send([1, 0, 1], b, 10001);
-      ubntSocket!.send([1, 0, 0, 0], b, 10001);
-    } catch (_) {}
-  }
-
-  Future<void> _startMdns() async {
-    try {
-      mdnsSocket = await RawDatagramSocket.bind(
-        InternetAddress.anyIPv4,
-        5353,
-        reuseAddress: true,
-        reusePort: true,
-      );
-      mdnsSocket!.joinMulticast(InternetAddress('224.0.0.251'));
-      mdnsSocket!.readEventsEnabled = true;
-
-      mdnsSub = mdnsSocket!.listen((event) {
-        if (event != RawSocketEvent.read) return;
-        final p = mdnsSocket!.receive();
-        if (p == null) return;
-
-        final txt = _extractMdnsTxt(p.data);
-        if (txt.isEmpty) return;
-
-        final d = Device()
-          ..ip = p.address.address
-          ..discoveryType = 'mDNS _http._tcp';
-
-        for (final item in txt) {
-          final i = item.indexOf('=');
-          if (i <= 0) continue;
-          final key = item.substring(0, i).trim().toLowerCase();
-          final value = item.substring(i + 1).trim();
-          if (value.isEmpty) continue;
-
-          d.raw[key] = value;
-          switch (key) {
-            case 'hostname':
-              d.hostname = value;
-            case 'mac':
-              d.mac = value;
-            case 'model':
-              d.model = value;
-            case 'boardname':
-              d.boardName = value;
-            case 'firmware':
-            case 'firmware_vername':
-              d.firmware = value;
-            case 'ssid':
-            case 'essid':
-            case 'wirelessname':
-            case 'wireless_name':
-              d.wirelessName = value;
+      sub = socket.listen((event) {
+        if (event == RawSocketEvent.read) {
+          Datagram? datagram;
+          while ((datagram = socket!.receive()) != null) {
+            _packetCount++;
+            final device = UbiquitiParser.parse(
+              datagram!.data,
+              datagram.address.address,
+            );
+            if (device != null) add(device);
           }
         }
-
-        if (d.model.isEmpty &&
-            RegExp(r'^KT[-_]?708(?:[-_].*)?$', caseSensitive: false)
-                .hasMatch(d.hostname)) {
-          d.model = 'KT-708';
-        }
-
-        if (d.hostname.isNotEmpty || d.mac.isNotEmpty || d.model.isNotEmpty) {
-          _merge(d);
-        }
       });
+      await done.future;
+      await sub.cancel();
+      timer.cancel();
+    } catch (_) {
+      // A local network can reject multicast/broadcast access; mDNS may still work.
+    } finally {
+      socket?.close();
+    }
+  }
 
-      mdnsSocket!.send(
-        _dnsQuery('_http._tcp.local'),
-        InternetAddress('224.0.0.251'),
-        5353,
-      );
+  Future<void> _scanMdns(void Function(NetworkDevice) add) async {
+    final client = MDnsClient();
+    try {
+      await client.start();
+      const browseQuery = '_services._dns-sd._udp.local';
+      final serviceTypes = <String>{};
+
+      await for (final ptr in client.lookup<PtrResourceRecord>(
+        ResourceRecordQuery.serverPointer(browseQuery),
+      ).timeout(const Duration(seconds: 3), onTimeout: (sink) => sink.close())) {
+        serviceTypes.add(ptr.domainName);
+        if (serviceTypes.length >= 40) break;
+      }
+
+      // Browse common device/service types as well as the service list above.
+      final types = <String>{
+        ...serviceTypes,
+        '_http._tcp.local',
+        '_https._tcp.local',
+        '_printer._tcp.local',
+        '_device-info._tcp.local',
+        '_workstation._tcp.local',
+        '_ipp._tcp.local',
+      };
+
+      for (final type in types) {
+        try {
+          await for (final ptr in client.lookup<PtrResourceRecord>(
+            ResourceRecordQuery.serverPointer(type),
+          ).timeout(const Duration(milliseconds: 900), onTimeout: (sink) => sink.close())) {
+            final instance = ptr.domainName;
+            final details = await _resolveMdnsInstance(client, instance);
+            add(NetworkDevice(
+              source: 'mDNS',
+              ip: details.ip,
+              hostname: details.hostname,
+              serviceType: type,
+              serviceName: instance,
+              txt: details.txt,
+              model: _guessModel(details.txt, instance, details.hostname),
+              wirelessName: _guessWirelessName(details.txt),
+            ));
+          }
+        } catch (_) {
+          // Individual mDNS service types are best-effort.
+        }
+      }
+    } catch (_) {
+      // Ignore mDNS errors; UDP/10001 remains independent.
+    } finally {
+      client.stop();
+    }
+  }
+
+  Future<_MdnsDetails> _resolveMdnsInstance(
+      MDnsClient client, String instance) async {
+    String? hostname;
+    String? ip;
+    final txt = <String, String>{};
+
+    try {
+      await for (final srv in client.lookup<SrvResourceRecord>(
+        ResourceRecordQuery.service(instance),
+      ).timeout(const Duration(milliseconds: 700), onTimeout: (sink) => sink.close())) {
+        hostname = srv.target;
+        break;
+      }
     } catch (_) {}
-  }
 
-  List<int> _dnsQuery(String name) {
-    final q = <int>[
-      0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
-    ];
-    for (final label in name.split('.')) {
-      final b = ascii.encode(label);
-      q.add(b.length);
-      q.addAll(b);
-    }
-    q.addAll([0, 0, 12, 0, 1]);
-    return q;
-  }
-
-  List<String> _extractMdnsTxt(List<int> data) {
-    final out = <String>[];
-    for (var i = 12; i < data.length - 2; i++) {
-      final len = data[i];
-      if (len < 3 || len > 180 || i + len + 1 > data.length) continue;
-      final chunk = data.sublist(i + 1, i + 1 + len);
-      if (chunk.any((b) => b < 32 || b > 126)) continue;
-      final s = ascii.decode(chunk);
-      if (s.contains('=') &&
-          RegExp(r'^[A-Za-z0-9_. -]+=.+$').hasMatch(s) &&
-          !out.contains(s)) {
-        out.add(s);
+    try {
+      await for (final address in client.lookup<IPAddressResourceRecord>(
+        ResourceRecordQuery.addressIPv4(hostname ?? instance),
+      ).timeout(const Duration(milliseconds: 700), onTimeout: (sink) => sink.close())) {
+        ip = address.address.address;
+        break;
       }
-    }
-    return out;
-  }
+    } catch (_) {}
 
-  Device? _parseUbnt(List<int> data, String sourceIp) {
-    if (data.length < 6) return null;
-    Device? best;
-    var bestScore = 0;
-
-    for (final big in [true, false]) {
-      final d = Device()
-        ..ip = sourceIp
-        ..discoveryType = 'Ubiquiti UDP/10001';
-      var p = 0;
-      var score = 0;
-
-      while (p + 3 <= data.length) {
-        final type = data[p++];
-        final a = data[p++];
-        final b = data[p++];
-        final len = big ? (a << 8 | b) : (b << 8 | a);
-        if (len < 0 || p + len > data.length) break;
-        final value = data.sublist(p, p + len);
-        p += len;
-        if (_tlv(type, value, d)) score += 3;
-      }
-
-      if (d.hostname.isNotEmpty) score += 5;
-      if (d.mac.isNotEmpty) score += 5;
-      if (d.model.isNotEmpty) score += 4;
-      if (d.wirelessName.isNotEmpty) score += 4;
-
-      if (score > bestScore) {
-        bestScore = score;
-        best = d;
-      }
-    }
-
-    return bestScore > 0 ? best : null;
-  }
-
-  bool _tlv(int type, List<int> v, Device d) {
-    switch (type) {
-      case 0x01:
-        if (v.length >= 6) {
-          d.mac = _mac(v, 0);
-          d.raw['0x01'] = d.mac;
-          return true;
+    try {
+      await for (final record in client.lookup<TxtResourceRecord>(
+        ResourceRecordQuery.text(instance),
+      ).timeout(const Duration(milliseconds: 700), onTimeout: (sink) => sink.close())) {
+        for (final item in record.text) {
+          final index = item.indexOf('=');
+          if (index > 0) {
+            txt[item.substring(0, index)] = item.substring(index + 1);
+          } else if (item.isNotEmpty) {
+            txt[item] = '';
+          }
         }
-      case 0x02:
-        if (v.length >= 10) {
-          if (d.mac.isEmpty) d.mac = _mac(v, 0);
-          d.ip = _ip(v, 6);
-          d.raw['0x02'] = '${d.mac} / ${d.ip}';
-          return true;
-        }
-      case 0x03:
-        d.firmware = _clean(v);
-        d.raw['firmware'] = d.firmware;
-        return d.firmware.isNotEmpty;
-      case 0x0b:
-        d.hostname = _clean(v);
-        d.raw['hostname'] = d.hostname;
-        return d.hostname.isNotEmpty;
-      case 0x0c:
-        d.boardName = _clean(v);
-        d.raw['platform'] = d.boardName;
-        return d.boardName.isNotEmpty;
-      case 0x0d:
-        d.wirelessName = _clean(v);
-        d.raw['ESSID'] = d.wirelessName;
-        return d.wirelessName.isNotEmpty;
-      case 0x0f:
-        d.raw['WebUI'] = _clean(v);
-        return true;
-      case 0x14:
-        d.model = _clean(v);
-        d.raw['model'] = d.model;
-        return d.model.isNotEmpty;
-    }
-    return false;
-  }
-
-  String _clean(List<int> v) {
-    var end = v.length;
-    while (end > 0 && [0, 10, 13, 32].contains(v[end - 1])) {
-      end--;
-    }
-    return utf8.decode(v.sublist(0, end), allowMalformed: true).trim();
-  }
-
-  String _mac(List<int> b, int o) => List.generate(
-        6,
-        (i) => b[o + i].toRadixString(16).padLeft(2, '0'),
-      ).join(':');
-
-  String _ip(List<int> b, int o) =>
-      '${b[o]}.${b[o + 1]}.${b[o + 2]}.${b[o + 3]}';
-
-  void _merge(Device incoming) {
-    if (!mounted) return;
-    final k = incoming.key;
-    final old = devices[k];
-    if (old == null) {
-      devices[k] = incoming;
-    } else {
-      if (incoming.hostname.isNotEmpty) old.hostname = incoming.hostname;
-      if (incoming.ip.isNotEmpty) old.ip = incoming.ip;
-      if (incoming.mac.isNotEmpty) old.mac = incoming.mac;
-      if (incoming.model.isNotEmpty) old.model = incoming.model;
-      if (incoming.wirelessName.isNotEmpty) {
-        old.wirelessName = incoming.wirelessName;
+        break;
       }
-      if (incoming.firmware.isNotEmpty) old.firmware = incoming.firmware;
-      if (incoming.boardName.isNotEmpty) old.boardName = incoming.boardName;
-      old.raw.addAll(incoming.raw);
-    }
-    setState(() {});
+    } catch (_) {}
+
+    return _MdnsDetails(hostname: hostname, ip: ip, txt: txt);
   }
 
-  Future<void> stopScan() async {
-    timer?.cancel();
-    await ubntSub?.cancel();
-    await mdnsSub?.cancel();
-    ubntSocket?.close();
-    mdnsSocket?.close();
-    ubntSub = null;
-    mdnsSub = null;
-    ubntSocket = null;
-    mdnsSocket = null;
+  String? _guessModel(Map<String, String> txt, String instance, String? host) {
+    for (final key in ['model', 'Model', 'product', 'Product', 'device', 'Device', 'modelname']) {
+      final value = txt[key];
+      if (value != null && value.trim().isNotEmpty) return value.trim();
+    }
+    return null;
+  }
+
+  String? _guessWirelessName(Map<String, String> txt) {
+    for (final key in ['ssid', 'SSID', 'essid', 'ESSID', 'wlan', 'wifi', 'wireless']) {
+      final value = txt[key];
+      if (value != null && value.trim().isNotEmpty) return value.trim();
+    }
+    return null;
   }
 
   @override
-  void dispose() {
-    stopScan();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: Scaffold(
-          appBar: AppBar(
-            centerTitle: true,
-            title: const Text(
-              'BASEM LG',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            leading: IconButton(
-              icon: const Icon(Icons.menu),
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('BASEM LG Device Finder')),
-              ),
-            ),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: scanning ? null : scan,
-              ),
-            ],
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Basem Device Finder'),
+        actions: [
+          IconButton(
+            tooltip: 'Scan',
+            onPressed: _scanning ? null : _scan,
+            icon: const Icon(Icons.refresh),
           ),
-          body: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 18, 18, 6),
-                child: Row(
-                  children: [
-                    Text(
-                      '${devices.length}',
-                      style: const TextStyle(
-                        fontSize: 21,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'الأجهزة المكتشفة',
-                      style: TextStyle(
-                        fontSize: 21,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: Text(status),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: devices.isEmpty
-                    ? Center(
-                        child: Text(
-                          scanning
-                              ? 'جاري البحث عن الأجهزة...'
-                              : 'لم يتم العثور على أجهزة',
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(12),
-                        itemCount: devices.length,
-                        itemBuilder: (_, i) => _card(devices.values.elementAt(i)),
-                      ),
-              ),
-            ],
-          ),
-        ),
-      );
-
-  Widget _card(Device d) => Card(
-        margin: const EdgeInsets.symmetric(vertical: 6),
-        child: InkWell(
-          onTap: () => _details(d),
-          borderRadius: BorderRadius.circular(14),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _scanning ? null : _scan,
+        icon: _scanning
+            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+            : const Icon(Icons.radar),
+        label: Text(_scanning ? 'Scanning…' : 'Scan network'),
+      ),
+      body: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(18),
+            ),
             child: Row(
               children: [
-                const Icon(Icons.router_outlined, size: 48, color: Colors.blue),
-                const SizedBox(width: 14),
+                Icon(Icons.lan, color: scheme.primary),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(d.displayName,
-                          style: const TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold)),
-                      Text('Model: ${d.displayModel.isEmpty ? '—' : d.displayModel}'),
-                      Text('IP: ${d.ip.isEmpty ? '—' : d.ip}'),
-                      Text('MAC: ${d.mac.isEmpty ? '—' : d.mac}'),
-                      if (d.wirelessName.isNotEmpty)
-                        Text('Wireless: ${d.wirelessName}'),
+                      Text(_status, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 4),
+                      Text('UDP/10001 + mDNS  •  Packets: $_packetCount',
+                          style: Theme.of(context).textTheme.bodySmall),
                     ],
                   ),
                 ),
               ],
             ),
           ),
-        ),
-      );
-
-  void _details(Device d) {
-    final rows = <MapEntry<String, String>>[
-      MapEntry('Hostname', d.hostname),
-      MapEntry('IP', d.ip),
-      MapEntry('MAC', d.mac),
-      MapEntry('Model', d.displayModel),
-      MapEntry('Wireless Name', d.wirelessName),
-      MapEntry('Firmware', d.firmware),
-      MapEntry('Board Name', d.boardName),
-      MapEntry('Discovery', d.discoveryType),
-      ...d.raw.entries,
-    ].where((e) => e.value.trim().isNotEmpty).toList();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(22, 8, 22, 30),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('تفاصيل الجهاز',
-                  style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              for (final e in rows)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 5),
-                  child: Text('${e.key}: ${e.value}',
-                      style: const TextStyle(fontSize: 16)),
-                ),
-            ],
+          Expanded(
+            child: _devices.isEmpty
+                ? _EmptyState(scanning: _scanning)
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                    itemCount: _devices.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (_, index) => _DeviceCard(device: _devices[index]),
+                  ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MdnsDetails {
+  const _MdnsDetails({this.hostname, this.ip, required this.txt});
+  final String? hostname;
+  final String? ip;
+  final Map<String, String> txt;
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.scanning});
+  final bool scanning;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.devices_other, size: 72,
+                color: Theme.of(context).colorScheme.outline),
+            const SizedBox(height: 16),
+            Text(scanning ? 'Listening for devices…' : 'No devices yet',
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Text(
+              'The scanner sends the Ubiquiti discovery probes and browses mDNS services on the local Wi‑Fi network.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
         ),
       ),
     );
+  }
+}
+
+class _DeviceCard extends StatelessWidget {
+  const _DeviceCard({required this.device});
+  final NetworkDevice device;
+
+  @override
+  Widget build(BuildContext context) {
+    final fields = <String, String>{
+      if (device.ip != null) 'IP': device.ip!,
+      if (device.mac != null) 'MAC': device.mac!,
+      if (device.wirelessName != null) 'Wireless Name': device.wirelessName!,
+      if (device.hostname != null) 'Hostname': device.hostname!,
+      if (device.product != null) 'Product': device.product!,
+      if (device.firmware != null) 'Firmware': device.firmware!,
+      if (device.serviceName != null) 'mDNS Service': device.serviceName!,
+    };
+
+    return Card(
+      elevation: 0,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(child: Icon(device.source == 'mDNS' ? Icons.dns : Icons.router)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(device.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+                      const SizedBox(height: 2),
+                      Text(device.source, style: Theme.of(context).textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (fields.isNotEmpty) ...[
+              const Divider(height: 24),
+              ...fields.entries.map((entry) => Padding(
+                    padding: const EdgeInsets.only(bottom: 7),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(width: 105, child: Text(entry.key,
+                            style: Theme.of(context).textTheme.labelMedium)),
+                        Expanded(child: Text(entry.value)),
+                      ],
+                    ),
+                  )),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class UbiquitiParser {
+  static NetworkDevice? parse(Uint8List data, String sourceIp) {
+    if (data.length < 4) return null;
+    // Ubiquiti discovery replies use a 4-byte header: version, command, length.
+    // Older implementations commonly expose 01 00 00 xx; newer ones may use v2.
+    if (data[0] != 0x01 && data[0] != 0x02) return null;
+    final declaredLength = (data[2] << 8) | data[3];
+    final end = (4 + declaredLength).clamp(4, data.length);
+    final fields = <int, List<int>>{};
+    var offset = 4;
+    while (offset + 3 <= end) {
+      final type = data[offset];
+      final length = (data[offset + 1] << 8) | data[offset + 2];
+      offset += 3;
+      if (length < 0 || offset + length > end) break;
+      fields[type] = data.sublist(offset, offset + length);
+      offset += length;
+    }
+
+    String? text(int type) {
+      final bytes = fields[type];
+      if (bytes == null || bytes.isEmpty) return null;
+      return utf8.decode(bytes, allowMalformed: true).replaceAll('\u0000', '').trim();
+    }
+
+    String? mac() {
+      final b = fields[0x01];
+      if (b == null || b.length != 6) return null;
+      return b.map((v) => v.toRadixString(16).padLeft(2, '0')).join(':');
+    }
+
+    String? ipFromField02() {
+      final b = fields[0x02];
+      if (b == null || b.length < 10) return null;
+      return '${b[6]}.${b[7]}.${b[8]}.${b[9]}';
+    }
+
+    // Different Ubiquiti generations have used both 0x14 and 0x15 for model,
+    // while 0x0c is also reported as a short product/platform string.
+    final model = _firstText(text(0x15), text(0x14), text(0x0c), text(0x10));
+    final product = _firstText(text(0x10), text(0x0c));
+    final wirelessName = _firstText(text(0x0d));
+    final hostname = _firstText(text(0x0b));
+    final firmware = _firstText(text(0x03), text(0x1b));
+
+    if (model == null && product == null && wirelessName == null && hostname == null && mac() == null) {
+      return null;
+    }
+
+    return NetworkDevice(
+      source: 'Ubiquiti UDP/10001',
+      ip: ipFromField02() ?? sourceIp,
+      mac: mac(),
+      model: model,
+      wirelessName: wirelessName,
+      hostname: hostname,
+      product: product,
+      firmware: firmware,
+    );
+  }
+
+  static String? _firstText(String? a, [String? b, String? c, String? d]) {
+    for (final value in [a, b, c, d]) {
+      if (value != null && value.trim().isNotEmpty) return value.trim();
+    }
+    return null;
   }
 }
