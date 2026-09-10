@@ -6,13 +6,16 @@ plugins {
 
 android {
     namespace "com.basem.devicefinder"
+
     compileSdk flutter.compileSdkVersion
     ndkVersion flutter.ndkVersion
 
     defaultConfig {
         applicationId "com.basem.devicefinder"
+
         minSdk flutter.minSdkVersion
         targetSdk flutter.targetSdkVersion
+
         versionCode flutter.versionCode
         versionName flutter.versionName
     }
@@ -27,7 +30,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            minifyEnabled false
+        }
+
         release {
+            minifyEnabled false
             signingConfig signingConfigs.debug
         }
     }
