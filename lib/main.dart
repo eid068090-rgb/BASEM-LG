@@ -56,7 +56,7 @@ class NetworkDevice {
   final Map<String, String>? txt;
 
   String get identity => [mac, ip, serviceName, hostname, model]
-      .where((v) => v != null && v!.trim().isNotEmpty)
+      .where((v) => v?.trim().isNotEmpty == true)
       .join('|')
       .toLowerCase();
 
@@ -82,7 +82,6 @@ class _DiscoveryPageState extends State<DiscoveryPage> {
   final List<NetworkDevice> _devices = [];
   bool _scanning = false;
   String _status = 'Ready to scan the local network';
-  DateTime? _lastScan;
   int _packetCount = 0;
 
   Future<void> _scan() async {
@@ -92,7 +91,6 @@ class _DiscoveryPageState extends State<DiscoveryPage> {
       _devices.clear();
       _packetCount = 0;
       _status = 'Scanning UDP/10001 and mDNS…';
-      _lastScan = DateTime.now();
     });
 
     final results = <NetworkDevice>[];
@@ -249,7 +247,7 @@ class _DiscoveryPageState extends State<DiscoveryPage> {
       await for (final record in client.lookup<TxtResourceRecord>(
         ResourceRecordQuery.text(instance),
       ).timeout(const Duration(milliseconds: 700), onTimeout: (sink) => sink.close())) {
-        for (final item in record.text) {
+        for (final item in record.text.split(RegExp(r'\r?\n'))) {
           final index = item.indexOf('=');
           if (index > 0) {
             txt[item.substring(0, index)] = item.substring(index + 1);
